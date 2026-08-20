@@ -1,0 +1,11 @@
+{
+  "name": "SMM Portal",
+  "description": "Sundaram Mahadeo Group field executive and admin portal.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
