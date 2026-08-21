@@ -24,24 +24,30 @@ jobs:
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
       - name: Build Web App
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
-      - name: Create Capacitor Configuration
+      - name: Configure Capacitor
         run: |
           cat <<EOF > capacitor.config.json
           {
             "appId": "com.smgroupinfo.smm",
             "appName": "SM Marketing",
-            "webDir": "dist"
+            "webDir": "dist",
+            "server": {
+              "androidScheme": "https",
+              "cleartext": true
+            }
           }
           EOF
 
-      - name: Add Android & Sync
+      - name: Sync Capacitor Android
         run: |
           npx cap add android || true
           npx cap sync android
 
-      # FIX: Updated Java JDK version from 17 to 21 for Capacitor 7 compatibility
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
