@@ -4,15 +4,19 @@ import {
   LogOut, Navigation, Play, Square, FileText, CheckCircle, History, Search, 
   TrendingUp, IndianRupee, User, Store, MapPin, Calendar, Settings, Users, 
   Activity, BarChart, Settings2, Download, AlertCircle, AlertTriangle, Camera, 
-  Database, ShieldAlert, Lock, RefreshCw, Smartphone, ShieldCheck, ArrowRight
+  Database, ShieldAlert, Lock, RefreshCw, Smartphone, ShieldCheck, ArrowRight,
+  Bell, Send
 } from 'lucide-react';
 import AdminUMS from './components/AdminUMS';
 import AdminReports from './components/AdminReports';
+import AdminFirmDirectory from './components/AdminFirmDirectory';
 import ShiftDashboard from './components/ShiftDashboard';
 import VisitLogger from './components/VisitLogger';
 import VisitHistory from './components/VisitHistory';
 import IncentivesDashboard from './components/IncentivesDashboard';
 import FirmOnboarding from './components/FirmOnboarding';
+import TelegramAdminConfig from './components/TelegramAdminConfig';
+import NotificationCenter from './components/NotificationCenter';
 import { PermissionsCheckScreen, RevokedPermissionsOverlay } from './components/DevicePermissionsGuard';
 
 // Safe JSON parser safeguard
@@ -254,15 +258,19 @@ function AdminConfig({ user }) {
           </button>
         </form>
       </div>
+
+      {/* TELEGRAM BOT & AUTOMATED 8:00 AM DISPATCH HUB */}
+      <TelegramAdminConfig />
     </div>
   );
 }
 
-function AdminDashboard({ user }) {
+function AdminDashboard({ user, onNavigate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedExec, setSelectedExec] = useState(null);
   const [inspectorMode, setInspectorMode] = useState('live');
+  const [leaderboardTab, setLeaderboardTab] = useState('top_execs'); // 'top_execs' | 'top_buyers' | 'timely_payments' | 'lowest_buyers' | 'slow_payments'
 
   useEffect(() => { fetchDashboard(); }, []);
 
@@ -282,7 +290,7 @@ function AdminDashboard({ user }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-blue-100 flex flex-col justify-center">
           <p className="text-xs text-blue-600 font-medium uppercase tracking-wider mb-1">Active Execs</p>
           <p className="text-2xl font-bold text-gray-900">{data.kpis.activeExecutives}</p>
@@ -294,10 +302,6 @@ function AdminDashboard({ user }) {
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-purple-100 flex flex-col justify-center">
           <p className="text-xs text-purple-600 font-medium uppercase tracking-wider mb-1">Visits Today</p>
           <p className="text-2xl font-bold text-gray-900">{data.kpis.totalVisitsToday}</p>
-        </div>
-        <div className="bg-white p-4 rounded-2xl shadow-sm border border-yellow-100 flex flex-col justify-center">
-          <p className="text-xs text-yellow-600 font-medium uppercase tracking-wider mb-1">Pending Verifs</p>
-          <p className="text-2xl font-bold text-gray-900">{data.kpis.pendingVerifications}</p>
         </div>
       </div>
 
@@ -348,6 +352,239 @@ function AdminDashboard({ user }) {
                <p className="text-xs text-gray-400 italic py-2">No collections recorded today yet.</p>
              )}
           </div>
+        </div>
+      </div>
+
+      {/* PERFORMANCE & RANKINGS INTELLIGENCE LEADERBOARD */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          <div>
+            <h3 className="text-lg font-black text-gray-900 flex items-center gap-2">
+              <TrendingUp className="text-purple-600" size={20} /> Performance & Intelligence Rankings
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">Top performing executives, buyer liftoffs, order turnaround speed, and risk monitoring.</p>
+          </div>
+
+          <button
+            onClick={() => onNavigate && onNavigate('admin-reports', leaderboardTab)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl transition-all"
+          >
+            <span>Open in Full Reports</span>
+            <ArrowRight size={14} />
+          </button>
+        </div>
+
+        {/* Tab Pills */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin border-b border-gray-100">
+          <button
+            onClick={() => setLeaderboardTab('top_execs')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-colors ${
+              leaderboardTab === 'top_execs' ? 'bg-purple-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Top Execs
+          </button>
+          <button
+            onClick={() => setLeaderboardTab('top_buyers')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-colors ${
+              leaderboardTab === 'top_buyers' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Top 10 Buyers
+          </button>
+          <button
+            onClick={() => setLeaderboardTab('timely_payments')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-colors ${
+              leaderboardTab === 'timely_payments' ? 'bg-teal-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Top 10 Timely Payers
+          </button>
+          <button
+            onClick={() => setLeaderboardTab('lowest_buyers')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-colors ${
+              leaderboardTab === 'lowest_buyers' ? 'bg-amber-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Top 10 Lowest Buyers
+          </button>
+          <button
+            onClick={() => setLeaderboardTab('slow_payments')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-colors ${
+              leaderboardTab === 'slow_payments' ? 'bg-rose-600 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Top 10 Slow Payers
+          </button>
+        </div>
+
+        {/* Tab Content Display */}
+        <div className="overflow-x-auto">
+          {leaderboardTab === 'top_execs' && (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="p-3 text-center">Rank</th>
+                  <th className="p-3">Executive Name</th>
+                  <th className="p-3 text-right">Sales Value</th>
+                  <th className="p-3 text-right">Collections</th>
+                  <th className="p-3 text-right">Visits</th>
+                  <th className="p-3 text-center">Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-medium">
+                {(data.topPerformersExecs || []).slice(0, 5).map((e) => (
+                  <tr key={e.execId} className="hover:bg-gray-50">
+                    <td className="p-3 text-center font-black text-purple-700">#{e.rank}</td>
+                    <td className="p-3 font-bold text-gray-900">{e.execName}</td>
+                    <td className="p-3 text-right font-black text-green-700">₹{e.salesValue.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-right font-bold text-blue-700">₹{e.collections.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-right text-gray-700">{e.visitsCount} visits</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800">
+                        {e.score} pts
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {leaderboardTab === 'top_buyers' && (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="p-3 text-center">Rank</th>
+                  <th className="p-3">Company / Dealer</th>
+                  <th className="p-3">Primary Brand</th>
+                  <th className="p-3 text-right">Total Purchased</th>
+                  <th className="p-3 text-right">Paid Amount</th>
+                  <th className="p-3 text-center">Tier</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-medium">
+                {(data.top10PurchasingCompanies || []).slice(0, 5).map((f) => (
+                  <tr key={f.firmId} className="hover:bg-gray-50">
+                    <td className="p-3 text-center font-black text-emerald-700">#{f.rank}</td>
+                    <td className="p-3">
+                      <p className="font-bold text-gray-900">{f.firmName}</p>
+                      <p className="text-[10px] text-gray-500">{f.contactPerson}</p>
+                    </td>
+                    <td className="p-3 text-gray-700">{f.primaryProduct}</td>
+                    <td className="p-3 text-right font-black text-emerald-800">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-right font-bold text-blue-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                        {f.tier}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {leaderboardTab === 'timely_payments' && (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="p-3 text-center">Rank</th>
+                  <th className="p-3">Company Name</th>
+                  <th className="p-3 text-center">Payment Speed</th>
+                  <th className="p-3 text-center">On-Time Rate</th>
+                  <th className="p-3 text-right">Total Paid</th>
+                  <th className="p-3 text-center">Rating</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-medium">
+                {(data.top10TimelyPaymentCompanies || []).slice(0, 5).map((f) => (
+                  <tr key={f.firmId} className="hover:bg-gray-50">
+                    <td className="p-3 text-center font-black text-teal-700">#{f.rank}</td>
+                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 bg-teal-100 text-teal-900 font-bold rounded-full text-[10px]">
+                        ⚡ {f.avgDaysToPay === 0 ? 'Instant' : `${f.avgDaysToPay}d`}
+                      </span>
+                    </td>
+                    <td className="p-3 text-center text-green-700 font-bold">{f.onTimeRatePercent}%</td>
+                    <td className="p-3 text-right font-black text-green-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-800 border border-green-200">
+                        {f.reliabilityRating}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {leaderboardTab === 'lowest_buyers' && (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="p-3 text-center">Rank</th>
+                  <th className="p-3">Company Name</th>
+                  <th className="p-3 text-right">Total Purchased</th>
+                  <th className="p-3 text-center">Orders</th>
+                  <th className="p-3 text-center">Inactivity</th>
+                  <th className="p-3">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-medium">
+                {(data.top10LowestPurchasingCompanies || []).slice(0, 5).map((f) => (
+                  <tr key={f.firmId} className="hover:bg-gray-50">
+                    <td className="p-3 text-center font-black text-amber-700">#{f.rank}</td>
+                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                    <td className="p-3 text-right font-bold text-gray-900">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-center text-gray-700">{f.orderCount}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-semibold rounded text-[10px]">
+                        {f.daysSinceLastOrder}d gap
+                      </span>
+                    </td>
+                    <td className="p-3 text-[11px] text-amber-800 truncate max-w-xs">{f.recommendedAction}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {leaderboardTab === 'slow_payments' && (
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-50 text-gray-500 uppercase font-semibold">
+                <tr>
+                  <th className="p-3 text-center">Rank</th>
+                  <th className="p-3">Company Name</th>
+                  <th className="p-3 text-center">Payment Delay</th>
+                  <th className="p-3 text-right">Overdue Dues</th>
+                  <th className="p-3 text-center">Risk Level</th>
+                  <th className="p-3">Recovery Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 font-medium">
+                {(data.top10SlowPaymentCompanies || []).slice(0, 5).map((f) => (
+                  <tr key={f.firmId} className="hover:bg-gray-50">
+                    <td className="p-3 text-center font-black text-rose-700">#{f.rank}</td>
+                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 bg-rose-100 text-rose-900 font-bold rounded-full text-[10px]">
+                        ⚠️ {f.avgDaysToPay}d
+                      </span>
+                    </td>
+                    <td className="p-3 text-right font-black text-rose-700">₹{f.outstandingDues.toLocaleString('en-IN')}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-bold rounded text-[10px]">
+                        {f.riskLevel}
+                      </span>
+                    </td>
+                    <td className="p-3 text-[11px] text-rose-800 truncate max-w-xs">{f.recoveryAction}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
 
@@ -635,32 +872,13 @@ function Login({ onLogin }) {
 
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Email / Phone Number</label>
-            <input type="text" placeholder="9435188967 or name@domain.com" value={emailOrPhone} onChange={e => setEmailOrPhone(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+            <input type="text" placeholder="Enter phone or email" value={emailOrPhone} onChange={e => setEmailOrPhone(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
           </div>
 
           <div>
             <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
             <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
           </div>
-
-          {!isRegistering && (
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-700 flex justify-between items-center">
-              <div>
-                <p className="font-bold text-slate-900">Admin Login Credentials</p>
-                <p className="text-[11px] text-slate-600 font-mono mt-0.5">Phone: 9435188967 | Pass: admin123</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmailOrPhone('9435188967');
-                  setPassword('admin123');
-                }}
-                className="px-2.5 py-1 text-[11px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all shadow-xs"
-              >
-                Auto-fill
-              </button>
-            </div>
-          )}
 
           <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm text-sm active:scale-98">
             {loading ? 'Processing...' : isRegistering ? 'Submit for Admin Approval' : 'Sign In to Portal'}
@@ -683,9 +901,33 @@ export function AppContent() {
   });
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [currentPage, setCurrentPage] = useState('admin-dashboard');
+  const [selectedReportSubTab, setSelectedReportSubTab] = useState('overview');
   const [hasGrantedPermissions, setHasGrantedPermissions] = useState(false);
   const [revokedPermissionReason, setRevokedPermissionReason] = useState('');
-  const [isBypassed, setIsBypassed] = useState(false);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+
+  // Fetch unread notifications count
+  const pollUnreadNotifications = async () => {
+    if (!token) return;
+    try {
+      const res = await api.get('/notifications');
+      if (Array.isArray(res.data)) {
+        const unread = res.data.filter(n => !n.isRead).length;
+        setUnreadNotificationsCount(unread);
+      }
+    } catch (err) {
+      // silent polling catch
+    }
+  };
+
+  useEffect(() => {
+    if (token) {
+      pollUnreadNotifications();
+      const interval = setInterval(pollUnreadNotifications, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [token]);
 
   useEffect(() => {
     if (token) {
@@ -861,15 +1103,11 @@ export function AppContent() {
   const isAdmin = user && user.role === 'ADMIN';
 
   // 1. Mandatory Device Permissions Gate for Field Executives
-  if (!isAdmin && !hasGrantedPermissions && !isBypassed) {
+  if (!isAdmin && !hasGrantedPermissions) {
     return (
       <PermissionsCheckScreen
         user={user}
         onPermissionsGranted={() => setHasGrantedPermissions(true)}
-        onBypassTesting={() => {
-          setIsBypassed(true);
-          setHasGrantedPermissions(true);
-        }}
       />
     );
   }
@@ -877,8 +1115,22 @@ export function AppContent() {
   const renderPage = () => {
     if (isAdmin) {
       switch (currentPage) {
-        case 'admin-dashboard': return <AdminDashboard user={user} />;
-        case 'admin-reports': return <AdminReports user={user} />;
+        case 'admin-dashboard': return (
+          <AdminDashboard 
+            user={user} 
+            onNavigate={(page, subTab) => { 
+              setCurrentPage(page); 
+              if (subTab) setSelectedReportSubTab(subTab); 
+            }} 
+          />
+        );
+        case 'admin-directory': return <AdminFirmDirectory user={user} />;
+        case 'admin-reports': return (
+          <AdminReports 
+            user={user} 
+            initialSubTab={selectedReportSubTab} 
+          />
+        );
         case 'admin-config': return <AdminConfig user={user} />;
         case 'admin-ums': return <AdminUMS user={user} />;
         case 'profile': return <ProfileSettings user={user} onLogout={handleLogout} />;
@@ -915,7 +1167,7 @@ export function AppContent() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight leading-none">
-                {isAdmin ? 'ADMIN CONTROL' : 'SMM PORTAL'}
+                SMM - FMA
               </h1>
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
                 isAdmin ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
@@ -924,20 +1176,24 @@ export function AppContent() {
               </span>
             </div>
             <p className="text-xs text-gray-500 font-medium mt-1 truncate max-w-[200px] sm:max-w-xs">
-              {isAdmin ? 'Sundaram Mahadeo Group' : `${user.fullName} • Shift Active`}
+              {isAdmin ? 'Sundaram Mahadeo Group • Admin' : `${user.fullName} • Shift Active`}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Quick Role Switcher for Audit & Testing */}
+          {/* Notification Bell Button */}
           <button
-            onClick={handleToggleRoleForAudit}
-            title="Switch View Mode"
-            className="px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-bold text-slate-700 flex items-center gap-1 transition-all"
+            onClick={() => setIsNotificationCenterOpen(true)}
+            title="Notifications & Dispatches"
+            className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
           >
-            <RefreshCw size={12} className="text-slate-500" />
-            <span className="hidden sm:inline">Switch to</span> {isAdmin ? 'Exec' : 'Admin'}
+            <Bell size={18} />
+            {unreadNotificationsCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+              </span>
+            )}
           </button>
 
           <button 
@@ -949,17 +1205,26 @@ export function AppContent() {
           </button>
         </div>
       </header>
+
+      {/* In-App Notification Center Drawer */}
+      <NotificationCenter
+        user={user}
+        isOpen={isNotificationCenterOpen}
+        onClose={() => setIsNotificationCenterOpen(false)}
+        onCountUpdated={(cnt) => setUnreadNotificationsCount(cnt)}
+      />
       
       <main className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full">
         {renderPage()}
       </main>
 
       {isAdmin ? (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-5 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
           <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' || currentPage === 'dashboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
+          <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
           <button onClick={() => setCurrentPage('admin-reports')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><FileText size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Reports</span></button>
-          <button onClick={() => setCurrentPage('admin-config')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-config' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Settings2 size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Config</span></button>
           <button onClick={() => setCurrentPage('admin-ums')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-ums' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">UMS</span></button>
+          <button onClick={() => setCurrentPage('admin-config')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-config' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Settings2 size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Config</span></button>
           <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
         </nav>
       ) : (

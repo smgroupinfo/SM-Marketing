@@ -22,7 +22,7 @@ export function checkStorageAvailable() {
 /**
  * Component 1: Initial Mandatory Permissions Gate Screen
  */
-export function PermissionsCheckScreen({ user, onPermissionsGranted, onBypassTesting }) {
+export function PermissionsCheckScreen({ user, onPermissionsGranted }) {
   const [locationStatus, setLocationStatus] = useState('prompt'); // 'granted' | 'prompt' | 'denied' | 'checking'
   const [cameraStatus, setCameraStatus] = useState('prompt');     // 'granted' | 'prompt' | 'denied' | 'checking'
   const [storageStatus, setStorageStatus] = useState('checking'); // 'granted' | 'denied' | 'checking'
@@ -338,17 +338,6 @@ export function PermissionsCheckScreen({ user, onPermissionsGranted, onBypassTes
               </>
             )}
           </button>
-
-          {/* Bypass for testing option */}
-          {onBypassTesting && (
-            <button
-              onClick={onBypassTesting}
-              type="button"
-              className="w-full py-2.5 text-xs text-slate-400 hover:text-slate-200 transition-colors font-semibold"
-            >
-              Simulate / Bypass for Testing (Sandbox Mode)
-            </button>
-          )}
         </div>
 
         {/* Policy Footer Note */}

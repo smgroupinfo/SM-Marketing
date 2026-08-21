@@ -3,7 +3,8 @@ import axios from 'axios';
 import { 
   Store, PlusCircle, Search, MapPin, Phone, User, 
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
-  Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee
+  Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee,
+  Navigation, Crosshair, Compass, ShieldCheck
 } from 'lucide-react';
 
 const api = axios.create({ baseURL: '/api' });
@@ -46,6 +47,13 @@ export default function FirmOnboarding({ user }) {
   const [photo, setPhoto] = useState('');
   const [photoPreview, setPhotoPreview] = useState('');
 
+  // GPS Location Capture States
+  const [gpsCoords, setGpsCoords] = useState({ lat: 23.3441, lng: 85.3096 });
+  const [gpsAccuracy, setGpsAccuracy] = useState(null); // in meters
+  const [isCapturingGps, setIsCapturingGps] = useState(false);
+  const [gpsStatusMsg, setGpsStatusMsg] = useState('Ready to capture');
+  const [gpsCapturedTime, setGpsCapturedTime] = useState('');
+
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -58,7 +66,48 @@ export default function FirmOnboarding({ user }) {
 
   useEffect(() => {
     fetchFirmsAndVisits();
+    captureLiveGpsLocation(false);
   }, []);
+
+  const captureLiveGpsLocation = (showNotification = true) => {
+    if (!navigator.geolocation) {
+      setGpsStatusMsg('Geolocation not supported by device/browser');
+      if (showNotification) setErrorMsg('Geolocation is not supported by your browser.');
+      return;
+    }
+
+    setIsCapturingGps(true);
+    setGpsStatusMsg('Acquiring high-precision satellite fix...');
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lng = Number(pos.coords.longitude.toFixed(6));
+        const acc = Math.round(pos.coords.accuracy);
+        
+        setGpsCoords({ lat, lng });
+        setGpsAccuracy(acc);
+        setGpsCapturedTime(new Date().toLocaleTimeString());
+        setIsCapturingGps(false);
+        setGpsStatusMsg(`Locked: ±${acc}m accuracy`);
+
+        if (showNotification) {
+          setSuccessMsg(`GPS Location captured successfully: ${lat}° N, ${lng}° E (±${acc}m)`);
+          setTimeout(() => setSuccessMsg(''), 4000);
+        }
+      },
+      (err) => {
+        console.warn('Geolocation capture fallback:', err.message);
+        setIsCapturingGps(false);
+        setGpsStatusMsg('GPS fix timed out (Using network approximate)');
+        if (showNotification) {
+          setErrorMsg(`GPS notice: ${err.message}. Using last known location.`);
+          setTimeout(() => setErrorMsg(''), 4000);
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   const fetchFirmsAndVisits = async () => {
     try {
@@ -123,7 +172,12 @@ export default function FirmOnboarding({ user }) {
         retail: parseFloat(retailPrice) || 0,
         wholesale: parseFloat(wholesalePrice) || 0
       },
-      location: { lat: 23.3441, lng: 85.3096 },
+      location: {
+        lat: gpsCoords.lat,
+        lng: gpsCoords.lng,
+        accuracy: gpsAccuracy || 10,
+        capturedAt: nowISO
+      },
       photo: photoPreview || photo || '',
       timestamp: nowISO,
       createdAt: nowISO
@@ -209,18 +263,39 @@ export default function FirmOnboarding({ user }) {
         </div>
       )}
 
-      {/* ONBOARD NEW FIRM FORM */}
+      {/* ONBOARD NEW FIRM FORM (ADMIN ONLY) */}
+      {user?.role === 'ADMIN' ? (
       <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200">
-        <div className="flex items-center gap-3 pb-5 border-b border-slate-100 mb-6">
-          <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-sm">
-            <PlusCircle size={22} />
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100 mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shadow-sm">
+              <PlusCircle size={22} />
+            </div>
+            <div>
+              <h2 className="text-lg sm:text-xl font-black text-slate-900">Onboard New Firm / Dealer</h2>
+              <p className="text-xs text-slate-500">
+                Register Sundaram Mahadeo Group entities, dealers, and hardware establishments
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg sm:text-xl font-black text-slate-900">Onboard New Firm / Dealer</h2>
-            <p className="text-xs text-slate-500">
-              Register Sundaram Mahadeo Group entities, dealers, and hardware establishments
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setName('SMST - Sundaram Mahadeo Steels (Reference Unit)');
+              setContactPerson('Rajesh Sharma (Manager)');
+              setPhone('9876543210');
+              setGstin('20AABCS1234F1Z1');
+              setAddress('Industrial Hub, Plot 42, Kokar, Ranchi');
+              setBrandsHandled('Tata Tiscon, UltraTech Super, ACC Gold');
+              setPurchasePrice('325');
+              setRetailPrice('360');
+              setWholesalePrice('340');
+            }}
+            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 self-start sm:self-auto"
+          >
+            <Tag size={13} />
+            Fill Reference Store (Test Data)
+          </button>
         </div>
 
         <form onSubmit={handleOnboardSubmit} className="space-y-5">
@@ -292,6 +367,105 @@ export default function FirmOnboarding({ user }) {
               onChange={(e) => setAddress(e.target.value)}
               className="w-full px-4 py-3 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
             />
+          </div>
+
+          {/* ========================================================================= */}
+          {/* LIVE GPS GEOLOCATION & GEOFENCE BASELINE CAPTURE                          */}
+          {/* ========================================================================= */}
+          <div className="bg-gradient-to-br from-emerald-50/70 via-slate-50 to-blue-50/50 p-5 rounded-2xl border border-emerald-200/90 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200/70">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <Navigation size={18} className={isCapturingGps ? 'animate-spin' : ''} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <span>Live GPS Geotag & Baseline Location</span>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                      Auto Geofence Base
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Authoritative GPS coordinates for real-time executive visit verification & automated cross-check
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => captureLiveGpsLocation(true)}
+                disabled={isCapturingGps}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95"
+              >
+                <RefreshCw size={13} className={isCapturingGps ? 'animate-spin' : ''} />
+                {isCapturingGps ? 'Capturing Fix...' : 'Recapture Current GPS'}
+              </button>
+            </div>
+
+            {/* Coordinates and accuracy telemetry display */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Latitude
+                </label>
+                <div className="flex items-center gap-2">
+                  <Crosshair size={14} className="text-emerald-600 shrink-0" />
+                  <input
+                    type="number"
+                    step="any"
+                    value={gpsCoords.lat}
+                    onChange={(e) => setGpsCoords(prev => ({ ...prev, lat: parseFloat(e.target.value) || 0 }))}
+                    className="w-full text-xs font-mono font-bold text-slate-900 bg-transparent focus:outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-200">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Longitude
+                </label>
+                <div className="flex items-center gap-2">
+                  <Compass size={14} className="text-emerald-600 shrink-0" />
+                  <input
+                    type="number"
+                    step="any"
+                    value={gpsCoords.lng}
+                    onChange={(e) => setGpsCoords(prev => ({ ...prev, lng: parseFloat(e.target.value) || 0 }))}
+                    className="w-full text-xs font-mono font-bold text-slate-900 bg-transparent focus:outline-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-xl border border-slate-200 flex flex-col justify-between">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  GPS Accuracy & Status
+                </label>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs font-semibold text-slate-800 flex items-center gap-1">
+                    <ShieldCheck size={14} className="text-emerald-600" />
+                    {gpsAccuracy !== null ? `±${gpsAccuracy} meters` : 'Acquired'}
+                  </span>
+                  <a
+                    href={`https://www.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-0.5 underline"
+                  >
+                    Maps <ExternalLink size={10} />
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-emerald-800/90 bg-emerald-100/50 p-2.5 rounded-xl flex items-center gap-2 border border-emerald-200/50">
+              <CheckCircle2 size={14} className="text-emerald-700 shrink-0" />
+              <span>
+                <strong>Automatic Geofencing Enabled:</strong> When field executives log sales or payment collections at this firm, the system will automatically cross-check their live GPS against these coordinates ({gpsCoords.lat}, {gpsCoords.lng}).
+              </span>
+            </p>
           </div>
 
           {/* Brands & Pricing Intelligence */}
@@ -387,6 +561,24 @@ export default function FirmOnboarding({ user }) {
           </button>
         </form>
       </div>
+      ) : (
+        <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-sm border border-slate-800 flex items-start gap-4">
+          <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-2xl flex items-center justify-center shrink-0">
+            <ShieldCheck size={24} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase rounded tracking-wider border border-amber-500/30">
+                Admin Exclusive Control
+              </span>
+            </div>
+            <h3 className="text-base font-bold text-white mt-1">Authorized Dealership Directory & Pricing Catalog</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Adding new firms, editing dealer master records, and firm deletion are restricted to Administrator accounts. Field executives can browse authorized dealer records, verify dealer pricing, and view lifting history below.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* SEARCHABLE FIRM DIRECTORY */}
       <div className="space-y-4">

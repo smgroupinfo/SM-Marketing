@@ -1,6 +1,6 @@
 {
-  "name": "SMM Portal",
-  "description": "Sundaram Mahadeo Group field executive and admin portal.",
+  "name": "SMM - FMA",
+  "description": "Sundaram Mahadeo Group Field Management & Financial Audit Application",
   "requestFramePermissions": [
     "camera",
     "geolocation"

@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { 
   CheckCircle2, PlusCircle, Camera, MapPin, Store, IndianRupee, 
   Clock, FileText, AlertCircle, RefreshCw, Layers, Check, ShoppingBag, 
   CreditCard, Edit3, Trash2, X, Calendar, Calculator, ShieldAlert, Sparkles,
-  Truck, ArrowRight, UserCheck, MessageSquare, HelpCircle, Navigation
+  Truck, ArrowRight, UserCheck, MessageSquare, HelpCircle, Navigation,
+  Crosshair, ShieldCheck, AlertTriangle, ExternalLink, Target
 } from 'lucide-react';
 
 const api = axios.create({ baseURL: '/api' });
@@ -13,6 +14,31 @@ api.interceptors.request.use(config => {
   if (token) config.headers['Authorization'] = `Bearer ${token}`;
   return config;
 });
+
+// Haversine distance calculator in meters between two GPS coordinates
+function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
+  if (lat1 === undefined || lat1 === null || lon1 === undefined || lon1 === null || 
+      lat2 === undefined || lat2 === null || lon2 === undefined || lon2 === null) {
+    return null;
+  }
+  const numLat1 = parseFloat(lat1);
+  const numLon1 = parseFloat(lon1);
+  const numLat2 = parseFloat(lat2);
+  const numLon2 = parseFloat(lon2);
+  if (isNaN(numLat1) || isNaN(numLon1) || isNaN(numLat2) || isNaN(numLon2)) return null;
+
+  const R = 6371e3; // Earth radius in meters
+  const φ1 = (numLat1 * Math.PI) / 180;
+  const φ2 = (numLat2 * Math.PI) / 180;
+  const Δφ = ((numLat2 - numLat1) * Math.PI) / 180;
+  const Δλ = ((numLon2 - numLon1) * Math.PI) / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
 
 // Product incentive rate mapping with default pricing per unit
 const PRODUCT_INCENTIVE_RATES = {
@@ -81,6 +107,35 @@ export default function VisitLogger({ user }) {
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Proximity & Geofence cross-check computations
+  const matchedFirm = useMemo(() => {
+    if (!clientName.trim()) return null;
+    const q = clientName.trim().toLowerCase();
+    return firmsList.find(f => (f.name || '').trim().toLowerCase() === q) ||
+           firmsList.find(f => (f.name || '').toLowerCase().includes(q));
+  }, [clientName, firmsList]);
+
+  const distanceToMatchedFirm = useMemo(() => {
+    if (!matchedFirm?.location?.lat || !matchedFirm?.location?.lng || !gpsLocation?.lat || !gpsLocation?.lng) {
+      return null;
+    }
+    return calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, matchedFirm.location.lat, matchedFirm.location.lng);
+  }, [matchedFirm, gpsLocation]);
+
+  const nearbyFirms = useMemo(() => {
+    if (!gpsLocation?.lat || !gpsLocation?.lng || firmsList.length === 0) return [];
+    return firmsList
+      .map(f => {
+        if (!f.location?.lat || !f.location?.lng) return null;
+        const d = calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, f.location.lat, f.location.lng);
+        return d !== null ? { ...f, distanceMeters: d } : null;
+      })
+      .filter(f => f && f.distanceMeters <= 500)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }, [firmsList, gpsLocation]);
+
+  const closestNearbyFirm = nearbyFirms.length > 0 ? nearbyFirms[0] : null;
 
   // Fetch initial visits, firms, and GPS on mount
   useEffect(() => {
@@ -299,6 +354,20 @@ export default function VisitLogger({ user }) {
     const parsedBilling = parseFloat(billingAmount) || 0;
     const parsedTxnAmount = parseFloat(transactionAmount) || 0;
 
+    // Compute authoritative Geofence Cross-Check status
+    let geofenceStatus = 'UNREGISTERED_LOCATION';
+    let distanceFromFirm = null;
+    if (matchedFirm && distanceToMatchedFirm !== null) {
+      distanceFromFirm = distanceToMatchedFirm;
+      if (distanceToMatchedFirm <= 250) {
+        geofenceStatus = 'VERIFIED_ON_SITE';
+      } else if (distanceToMatchedFirm <= 1500) {
+        geofenceStatus = 'VICINITY';
+      } else {
+        geofenceStatus = 'DISCREPANCY';
+      }
+    }
+
     // Construct conditional specific payload based on visitPurpose
     let payload = {
       clientName: clientName.trim(),
@@ -309,6 +378,9 @@ export default function VisitLogger({ user }) {
       notes: note.trim(),
       photo: photoPreview || photo || '',
       location: gpsLocation,
+      geofenceStatus,
+      distanceFromFirmMeters: distanceFromFirm,
+      firmLocation: matchedFirm?.location || null,
       status: 'VERIFIED',
       updatedAt: nowISO
     };
@@ -514,6 +586,37 @@ export default function VisitLogger({ user }) {
         </div>
 
         <form onSubmit={handleSubmitVisit} className="space-y-6">
+          {/* PROACTIVE AUTO-DETECTED NEARBY FIRM PROMPT */}
+          {closestNearbyFirm && (!clientName || clientName.trim() !== closestNearbyFirm.name) && (
+            <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 via-emerald-50 to-blue-50/50 border border-emerald-300/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-600 text-white rounded-xl shadow-xs">
+                  <Target size={16} />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-black text-slate-900">Auto-Detected Nearby Firm:</span>
+                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                      {closestNearbyFirm.name}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    Your live GPS coordinates match this shop baseline ({closestNearbyFirm.distanceMeters}m away).
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setClientName(closestNearbyFirm.name)}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+              >
+                <Check size={13} />
+                Auto-Select Firm
+              </button>
+            </div>
+          )}
+
           {/* Top Row: Client Name & Visit Purpose Selection */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-2">
@@ -537,7 +640,66 @@ export default function VisitLogger({ user }) {
                 </datalist>
                 <Store size={18} className="absolute right-4 top-3.5 text-slate-400 pointer-events-none" />
               </div>
-              {firmsList.length > 0 && (
+
+              {/* LIVE GEOLOCATION CROSS-CHECK STATUS */}
+              {clientName.trim() && (
+                <div className="mt-2">
+                  {matchedFirm ? (
+                    matchedFirm.location?.lat && matchedFirm.location?.lng ? (
+                      distanceToMatchedFirm !== null ? (
+                        distanceToMatchedFirm <= 250 ? (
+                          <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-emerald-800 font-bold">
+                              <ShieldCheck size={16} className="text-emerald-600 shrink-0" />
+                              <span>Geolocation Verified On-Site: You are within {distanceToMatchedFirm}m of registered shop GPS</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 font-extrabold text-[10px] uppercase">
+                              PASSED (0m - 250m)
+                            </span>
+                          </div>
+                        ) : distanceToMatchedFirm <= 1500 ? (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-amber-800 font-bold">
+                              <Navigation size={16} className="text-amber-600 shrink-0" />
+                              <span>Vicinity Detection: You are {distanceToMatchedFirm}m from registered shop coordinates</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-extrabold text-[10px] uppercase">
+                              NEARBY ({distanceToMatchedFirm}m)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-2 text-rose-800 font-bold">
+                              <AlertTriangle size={16} className="text-rose-600 shrink-0" />
+                              <span>Location Variance Alert: Live GPS is {(distanceToMatchedFirm / 1000).toFixed(1)} km away from registered baseline</span>
+                            </div>
+                            <span className="px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 font-extrabold text-[10px] uppercase">
+                              DISCREPANCY FLAGGED
+                            </span>
+                          </div>
+                        )
+                      ) : (
+                        <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                          <MapPin size={12} className="text-blue-500" />
+                          Calculating live geofence verification...
+                        </p>
+                      )
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                        <MapPin size={12} className="text-slate-400" />
+                        Firm has no baseline GPS registered. Current visit coordinates will calibrate baseline.
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                      <Store size={12} className="text-blue-500" />
+                      Unregistered / custom establishment. Will record live coordinates ({gpsLocation.lat}, {gpsLocation.lng}).
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {firmsList.length > 0 && !clientName && (
                 <p className="text-[11px] text-slate-400 mt-1">
                   Select from {firmsList.length} onboarded group entities/dealers or enter new shop name.
                 </p>
