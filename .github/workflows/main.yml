@@ -13,22 +13,33 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # FIX: Updated Node.js to version 20 to support Rolldown/Vite modern exports
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Dependencies
         run: |
           npm install
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
-      - name: Build Web App & Add Android
+      - name: Build Web App
+        run: npm run build
+
+      - name: Create Capacitor Configuration
         run: |
-          npm run build
+          cat <<EOF > capacitor.config.json
+          {
+            "appId": "com.smgroupinfo.smm",
+            "appName": "SM Marketing",
+            "webDir": "dist"
+          }
+          EOF
+
+      - name: Add Android & Sync
+        run: |
           npx cap add android || true
-          npx cap sync
+          npx cap sync android
 
       - name: Setup Java JDK
         uses: actions/setup-java@v4
