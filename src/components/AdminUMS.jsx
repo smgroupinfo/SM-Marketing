@@ -39,7 +39,8 @@ export default function AdminUMS({ user }) {
     setLoading(true);
     try {
       const res = await api.get('/admin/users');
-      const normalizedUsers = res.data.users.map(u => ({
+      const rawUsers = Array.isArray(res.data?.users) ? res.data.users : (Array.isArray(res.data) ? res.data : []);
+      const normalizedUsers = rawUsers.map(u => ({
         ...u,
         status: u.status || (u.role === 'ADMIN' ? 'ACTIVE' : 'PENDING')
       }));

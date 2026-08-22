@@ -34,7 +34,7 @@ export function safeJsonParse(jsonString, fallback = null) {
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, errorInfo: null, showDetails: false };
   }
 
   static getDerivedStateFromError(error) {
@@ -68,9 +68,15 @@ export class ErrorBoundary extends Component {
               <AlertTriangle size={32} />
             </div>
             <h2 className="text-2xl font-black text-white tracking-tight">Application Safeguard</h2>
-            <p className="text-sm text-slate-400 mt-2 mb-6">
+            <p className="text-sm text-slate-400 mt-2 mb-4">
               A temporary runtime issue was caught safely. Your session data is intact.
             </p>
+            {this.state.error && (
+              <div className="text-left bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-[11px] font-mono text-rose-300 mb-6 overflow-x-auto">
+                <p className="font-bold text-rose-400">Error Notice:</p>
+                <p>{this.state.error.toString()}</p>
+              </div>
+            )}
             <div className="space-y-3">
               <button
                 onClick={this.handleReset}
@@ -257,7 +263,18 @@ function AdminConfig({ user }) {
 }
 
 function AdminDashboard({ user, onNavigate }) {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState({
+    kpis: { activeExecutives: 0, totalFieldKmsToday: 0, totalVisitsToday: 0 },
+    salesReport: { totalBilling: 0, byUnit: [] },
+    paymentReport: { totalCollections: 0, byMode: [] },
+    topPerformersExecs: [],
+    top10PurchasingCompanies: [],
+    top10TimelyPaymentCompanies: [],
+    top10LowestPurchasingCompanies: [],
+    top10SlowPaymentCompanies: [],
+    activity: [],
+    execActivity: []
+  });
   const [loading, setLoading] = useState(true);
   const [selectedExec, setSelectedExec] = useState(null);
   const [inspectorMode, setInspectorMode] = useState('live');
@@ -268,7 +285,9 @@ function AdminDashboard({ user, onNavigate }) {
   const fetchDashboard = async () => {
     try {
       const res = await api.get('/admin/dashboard');
-      setData(res.data);
+      if (res && res.data) {
+        setData(prev => ({ ...prev, ...res.data }));
+      }
     } catch (err) {
       console.error('Failed to fetch admin dashboard', err);
     } finally {
@@ -277,22 +296,21 @@ function AdminDashboard({ user, onNavigate }) {
   };
 
   if (loading) return <div className="py-8 text-center text-gray-500">Loading admin dashboard...</div>;
-  if (!data) return <div className="py-8 text-center text-red-500">Failed to load admin data.</div>;
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-blue-100 flex flex-col justify-center">
           <p className="text-xs text-blue-600 font-medium uppercase tracking-wider mb-1">Active Execs</p>
-          <p className="text-2xl font-bold text-gray-900">{data.kpis.activeExecutives}</p>
+          <p className="text-2xl font-bold text-gray-900">{data?.kpis?.activeExecutives ?? 0}</p>
         </div>
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-green-100 flex flex-col justify-center">
           <p className="text-xs text-green-600 font-medium uppercase tracking-wider mb-1">Total KMs (Today)</p>
-          <p className="text-2xl font-bold text-gray-900">{data.kpis.totalFieldKmsToday} km</p>
+          <p className="text-2xl font-bold text-gray-900">{data?.kpis?.totalFieldKmsToday ?? 0} km</p>
         </div>
         <div className="bg-white p-4 rounded-2xl shadow-sm border border-purple-100 flex flex-col justify-center">
           <p className="text-xs text-purple-600 font-medium uppercase tracking-wider mb-1">Visits Today</p>
-          <p className="text-2xl font-bold text-gray-900">{data.kpis.totalVisitsToday}</p>
+          <p className="text-2xl font-bold text-gray-900">{data?.kpis?.totalVisitsToday ?? 0}</p>
         </div>
       </div>
 
@@ -921,6 +939,7 @@ export function AppContent() {
   const [selectedReportSubTab, setSelectedReportSubTab] = useState('overview');
   const [hasGrantedPermissions, setHasGrantedPermissions] = useState(false);
   const [revokedPermissionReason, setRevokedPermissionReason] = useState('');
+  const [isBypassed, setIsBypassed] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
 
