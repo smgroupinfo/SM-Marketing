@@ -1,18 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Store, PlusCircle, Search, MapPin, Phone, User, 
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
   Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee,
   Navigation, Crosshair, Compass, ShieldCheck
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function FirmOnboarding({ user }) {
   // 1. LOCAL STORAGE & INITIAL STATE FALLBACK

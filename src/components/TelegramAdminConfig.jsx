@@ -1,22 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Send, RefreshCw, CheckCircle2, AlertCircle, Clock, ShieldCheck, 
   Camera, MapPin, Calendar, FileText, Info, Terminal, Sparkles
 } from 'lucide-react';
-
-const api = axios.create({
-  baseURL: 'http://localhost:3000/api',
-  headers: { 'Content-Type': 'application/json' }
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function TelegramAdminConfig() {
   const [config, setConfig] = useState({
@@ -47,12 +34,31 @@ export default function TelegramAdminConfig() {
     setLoading(true);
     try {
       const res = await api.get('/telegram/config');
-      if (res.data) {
-        setConfig(res.data);
-        const mapLines = Object.entries(res.data.executiveChatIds || {})
-          .map(([id, chatId]) => `${id}: ${chatId}`)
-          .join('\n');
-        setExecMappingText(mapLines);
+      const data = res.data?.config || res.data;
+      if (data) {
+        const hour = data.dispatchTime ? parseInt(data.dispatchTime.split(':')[0], 10) : 8;
+        const minute = data.dispatchTime ? parseInt(data.dispatchTime.split(':')[1], 10) : 0;
+        
+        setConfig({
+          botToken: data.botToken || '',
+          adminChatId: data.adminChatId || '',
+          channelChatId: data.channelChatId || '',
+          enabled: data.autoDispatchEnabled !== undefined ? data.autoDispatchEnabled : true,
+          sendAtHour: isNaN(hour) ? 8 : hour,
+          sendAtMinute: isNaN(minute) ? 0 : minute
+        });
+
+        if (Array.isArray(data.execMappings)) {
+          const mapLines = data.execMappings
+            .map(m => `${m.execId || m.execName}: ${m.chatId}`)
+            .join('\n');
+          setExecMappingText(mapLines);
+        } else if (data.executiveChatIds && typeof data.executiveChatIds === 'object') {
+          const mapLines = Object.entries(data.executiveChatIds)
+            .map(([id, chatId]) => `${id}: ${chatId}`)
+            .join('\n');
+          setExecMappingText(mapLines);
+        }
       }
     } catch (err) {
       console.error('Failed to load telegram config:', err);
@@ -64,7 +70,8 @@ export default function TelegramAdminConfig() {
   const fetchLogs = async () => {
     try {
       const res = await api.get('/telegram/logs');
-      setLogs(res.data || []);
+      const logsData = res.data?.logs || res.data || [];
+      setLogs(Array.isArray(logsData) ? logsData : []);
     } catch (err) {
       console.error('Failed to load telegram logs:', err);
     }
@@ -77,21 +84,32 @@ export default function TelegramAdminConfig() {
     setError('');
 
     // Parse executive chat ID mapping lines
-    const parsedExecs = {};
+    const parsedExecMappings = [];
+    const parsedExecsMap = {};
     execMappingText.split('\n').forEach(line => {
       const parts = line.split(':').map(p => p.trim());
       if (parts.length >= 2 && parts[0] && parts[1]) {
-        parsedExecs[parts[0]] = parts[1];
+        parsedExecMappings.push({ execId: parts[0], execName: parts[0], chatId: parts[1] });
+        parsedExecsMap[parts[0]] = parts[1];
       }
     });
 
     try {
+      const padHour = String(config.sendAtHour || 8).padStart(2, '0');
+      const padMin = String(config.sendAtMinute || 0).padStart(2, '0');
       const payload = {
-        ...config,
-        executiveChatIds: parsedExecs
+        botToken: config.botToken,
+        adminChatId: config.adminChatId,
+        autoDispatchEnabled: config.enabled,
+        adminNotificationsEnabled: true,
+        dispatchTime: `${padHour}:${padMin}`,
+        execMappings: parsedExecMappings,
+        executiveChatIds: parsedExecsMap
       };
       const res = await api.put('/telegram/config', payload);
-      setConfig(res.data.config);
+      if (res.data?.config) {
+        setConfig(prev => ({ ...prev, botToken: res.data.config.botToken, adminChatId: res.data.config.adminChatId }));
+      }
       setMessage('Telegram integration settings updated & active.');
       setTimeout(() => setMessage(''), 4000);
       fetchLogs();

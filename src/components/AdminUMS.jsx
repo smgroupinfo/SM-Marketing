@@ -1,16 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Users, UserCheck, UserX, KeyRound, Edit, Check, X, Shield, 
   Search, RefreshCw, AlertTriangle, Phone, Mail, User as UserIcon
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function AdminUMS({ user }) {
   const [users, setUsers] = useState([]);

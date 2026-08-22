@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import axios from 'axios';
 import { 
   CheckCircle2, PlusCircle, Camera, MapPin, Store, IndianRupee, 
   Clock, FileText, AlertCircle, RefreshCw, Layers, Check, ShoppingBag, 
@@ -7,13 +6,7 @@ import {
   Truck, ArrowRight, UserCheck, MessageSquare, HelpCircle, Navigation,
   Crosshair, ShieldCheck, AlertTriangle, ExternalLink, Target
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 // Haversine distance calculator in meters between two GPS coordinates
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {

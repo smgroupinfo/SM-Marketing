@@ -1,18 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   TrendingUp, IndianRupee, Navigation, CheckCircle2, 
   Calendar, Layers, RefreshCw, AlertCircle, ShoppingBag, ShieldCheck,
   CreditCard, FileText, PlusCircle, Check, ArrowDownRight, ArrowUpRight,
   Filter, Search, Building2, Wallet, DollarSign, X, Calculator
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function IncentivesDashboard({ user }) {
   // 1. LOCAL STORAGE STATE FALLBACKS

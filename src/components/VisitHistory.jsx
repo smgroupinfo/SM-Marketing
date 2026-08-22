@@ -1,17 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Calendar, Search, Clock, MapPin, Store, IndianRupee, 
   CheckCircle2, Filter, AlertCircle, FileText, ChevronRight, RefreshCw, 
   Layers, ShoppingBag, CreditCard, Lock, Edit3, Trash2, X
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function VisitHistory({ user, onEditVisit }) {
   // 1. LOCAL STORAGE & INITIAL STATE FALLBACK

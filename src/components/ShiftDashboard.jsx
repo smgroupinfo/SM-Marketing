@@ -1,17 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Play, Square, Camera, MapPin, CheckCircle2, AlertCircle, 
   Calendar, Clock, Award, TrendingUp, Navigation, RefreshCw, 
   IndianRupee, ChevronRight, FileText, Check, AlertTriangle 
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function ShiftDashboard({ user }) {
   // Main shift status: 'OFF_DUTY' | 'STARTING' | 'ACTIVE' | 'CLOSING' | 'REVIEW'

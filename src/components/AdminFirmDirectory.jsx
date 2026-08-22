@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Store, PlusCircle, Search, MapPin, Phone, User, 
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
@@ -7,13 +6,7 @@ import {
   Filter, Download, Layers, ArrowUpRight, ArrowDownLeft, Wallet, Building2, Eye,
   Navigation, Crosshair, Compass, ShieldCheck, Edit3, Trash2, X
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function AdminFirmDirectory({ user }) {
   // Navigation tabs within Firm Directory

@@ -93,17 +93,8 @@ export class ErrorBoundary extends Component {
   }
 }
 
-const api = axios.create({
-  baseURL: '/api'
-});
-
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers['Authorization'] = `Bearer ${token}`;
-  }
-  return config;
-});
+import { api } from './lib/api';
+import { supabase, SUPABASE_URL } from './lib/supabase';
 
 // ==========================================
 // ADMIN CONFIGURATION & DASHBOARD
@@ -760,6 +751,32 @@ function ProfileSettings({ user, onLogout }) {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Database & Mobile APK Connectivity Status Card */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-emerald-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Database className="text-emerald-600" size={18} />
+            <h3 className="text-sm font-bold text-gray-900">Supabase Database & APK Standalone Bridge</h3>
+          </div>
+          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+            Active & Connected
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          The Supabase PostgreSQL database URL and Anon API key are hardcoded directly in the client bundle. When built into an Android APK or downloaded, the application communicates with the live cloud database without server dependency.
+        </p>
+        <div className="p-3 bg-slate-900 text-slate-200 rounded-xl text-[11px] font-mono space-y-1">
+          <div className="flex justify-between items-center text-slate-400">
+            <span>Project URL:</span>
+            <span className="text-emerald-400 font-bold">{SUPABASE_URL}</span>
+          </div>
+          <div className="flex justify-between items-center text-slate-400">
+            <span>APK Connectivity:</span>
+            <span className="text-sky-300 font-bold">Direct Supabase Cloud + REST</span>
+          </div>
+        </div>
       </div>
     </div>
   );

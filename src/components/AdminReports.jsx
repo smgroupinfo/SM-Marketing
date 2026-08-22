@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   FileText, Download, Filter, Calendar, Users, TrendingUp, 
   IndianRupee, CheckCircle, RefreshCw, Layers, CreditCard, 
@@ -7,13 +6,7 @@ import {
   Clock, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
   Building2, Phone, MapPin, Search, Star, ShieldCheck, ChevronRight
 } from 'lucide-react';
-
-const api = axios.create({ baseURL: '/api' });
-api.interceptors.request.use(config => {
-  const token = localStorage.getItem('token');
-  if (token) config.headers['Authorization'] = `Bearer ${token}`;
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function AdminReports({ user, initialSubTab = 'overview' }) {
   const todayStr = new Date().toISOString().split('T')[0];

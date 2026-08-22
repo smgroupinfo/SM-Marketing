@@ -1,22 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { 
   Bell, CheckCheck, Send, AlertCircle, RefreshCw, 
   Sparkles, X, MessageSquare, Clock, Shield, User, Filter
 } from 'lucide-react';
-
-const api = axios.create({
-  baseURL: 'http://localhost:3000/api',
-  headers: { 'Content-Type': 'application/json' }
-});
-
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
+import { api } from '../lib/api';
 
 export default function NotificationCenter({ user, isOpen, onClose, onCountUpdated }) {
   const [notifications, setNotifications] = useState([]);
@@ -39,8 +26,13 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
     setLoading(true);
     try {
       const res = await api.get('/notifications');
-      setNotifications(res.data || []);
-      const unread = (res.data || []).filter(n => !n.isRead).length;
+      const list = res.data?.notifications || (Array.isArray(res.data) ? res.data : []);
+      const formatted = list.map(n => ({
+        ...n,
+        isRead: Boolean(n.read || n.isRead)
+      }));
+      setNotifications(formatted);
+      const unread = formatted.filter(n => !n.isRead).length;
       if (onCountUpdated) onCountUpdated(unread);
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
@@ -51,8 +43,8 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
 
   const handleMarkAllRead = async () => {
     try {
-      await api.put('/notifications/mark-read', { markAll: true });
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      await api.post('/notifications/mark-read', { markAll: true });
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true, read: true })));
       if (onCountUpdated) onCountUpdated(0);
     } catch (err) {
       console.error('Failed to mark notifications read:', err);
@@ -61,8 +53,8 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
 
   const handleMarkSingleRead = async (id) => {
     try {
-      await api.put('/notifications/mark-read', { notificationIds: [id] });
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      await api.post('/notifications/mark-read', { id });
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true, read: true } : n));
       const remainingUnread = notifications.filter(n => n.id !== id && !n.isRead).length;
       if (onCountUpdated) onCountUpdated(remainingUnread);
     } catch (err) {
@@ -76,14 +68,13 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
     setSendingBroadcast(true);
     setBroadcastSuccess('');
     try {
-      await api.post('/notifications', {
+      await api.post('/notifications/send', {
         title: broadcastTitle,
         message: broadcastMessage,
         type: 'BROADCAST',
-        targetRole: broadcastTarget,
-        sendTelegram: true
+        targetUserId: broadcastTarget
       });
-      setBroadcastSuccess('Broadcast notification & Telegram alert dispatched successfully.');
+      setBroadcastSuccess('Broadcast notification dispatched successfully.');
       setBroadcastTitle('');
       setBroadcastMessage('');
       setIsBroadcasting(false);
