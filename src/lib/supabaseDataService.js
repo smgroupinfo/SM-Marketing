@@ -2,6 +2,35 @@ import bcrypt from 'bcryptjs';
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase';
 
 // ==============================================================================
+// BULLETPROOF PASSWORD VERIFICATION (BCRYPT + PLAIN TEXT HYBRID)
+// ==============================================================================
+export function verifyPassword(inputPassword, storedHash) {
+  if (inputPassword === null || inputPassword === undefined || storedHash === null || storedHash === undefined) {
+    return false;
+  }
+
+  const cleanInput = String(inputPassword).trim();
+  const cleanStored = String(storedHash).trim();
+
+  if (!cleanInput || !cleanStored) {
+    return false;
+  }
+
+  // 1. Check if stored password is a standard bcrypt hash ($2a$, $2b$, or $2y$)
+  if (cleanStored.startsWith('$2a$') || cleanStored.startsWith('$2b$') || cleanStored.startsWith('$2y$')) {
+    try {
+      return bcrypt.compareSync(cleanInput, cleanStored);
+    } catch (err) {
+      console.warn('[Bcrypt Verification Error]', err);
+      return false;
+    }
+  }
+
+  // 2. Fallback: Strict plain text equality comparison for unhashed legacy/seed records
+  return cleanInput === cleanStored;
+}
+
+// ==============================================================================
 // SEED DATA FOR INSTANT LOCAL & CLOUD RECOVERY
 // ==============================================================================
 export const SEED_ADMIN = {
@@ -110,11 +139,13 @@ export async function directSupabaseLogin(emailOrPhone, password) {
         .or(`phone_number.eq.${query},email.ilike.${query}`)
         .limit(1);
 
-      if (!error && data && data.length > 0) {
+      if (error) {
+        console.warn('[Supabase Login Query Warning]', error.message);
+      } else if (data && data.length > 0) {
         user = data[0];
       }
     } catch (err) {
-      console.warn('[Supabase Direct Login] Query error, checking local/seed cache:', err);
+      console.warn('[Supabase Direct Login] Exception during query:', err);
     }
   }
 
@@ -136,25 +167,39 @@ export async function directSupabaseLogin(emailOrPhone, password) {
     throw new Error('User not found. Please check your phone number or register a new account.');
   }
 
-  // 3. Verify Password
-  let isMatch = false;
+  // 3. Verify Password using Hybrid Checker
+  let isMatch = verifyPassword(inputPass, user.password_hash);
 
-  // Check Master Admin default password bypass
+  // Special Master Admin / Exec fallback check
   const isMasterAdmin = (query === '9435188967' || (user.email && user.email.toLowerCase() === 'admin@sundarammahadeogroup.com') || user.role === 'ADMIN');
-  if (isMasterAdmin && inputPass === 'admin123') {
+  if (!isMatch && isMasterAdmin && inputPass === 'admin123') {
     isMatch = true;
-  } else if (inputPass === 'exec123' && user.role === 'EXECUTIVE') {
+  } else if (!isMatch && inputPass === 'exec123' && user.role === 'EXECUTIVE') {
     isMatch = true;
-  } else if (user.password_hash) {
-    try {
-      isMatch = bcrypt.compareSync(inputPass, user.password_hash);
-    } catch (err) {
-      console.warn('[Bcrypt Compare Error]', err);
-    }
   }
 
   if (!isMatch) {
     throw new Error('Invalid password. Please check your credentials.');
+  }
+
+  // Auto-upgrade plain text password in Supabase if needed
+  if (supabase && user.id && user.password_hash && !user.password_hash.startsWith('$2a$') && !user.password_hash.startsWith('$2b$') && !user.password_hash.startsWith('$2y$')) {
+    try {
+      const salt = bcrypt.genSaltSync(10);
+      const secureHash = bcrypt.hashSync(inputPass, salt);
+      const { error: upgradeError } = await supabase
+        .from('users')
+        .update({ password_hash: secureHash })
+        .eq('id', user.id);
+
+      if (upgradeError) {
+        console.warn('[Password Upgrade Warning]', upgradeError.message);
+      } else {
+        user.password_hash = secureHash;
+      }
+    } catch (e) {
+      console.warn('[Password Upgrade Exception]', e);
+    }
   }
 
   // 4. Status Check
@@ -190,18 +235,29 @@ export async function directSupabaseLogin(emailOrPhone, password) {
   localStorage.setItem('token', token);
   localStorage.setItem('user', JSON.stringify(authUser));
 
-  // Sync admin to Supabase if missing
+  // Auto-provision admin to Supabase safely using async/await without .catch()
   if (supabase && isMasterAdmin) {
-    supabase.from('users').upsert([{
-      id: user.id || SEED_ADMIN.id,
-      full_name: user.full_name || 'Sundaram Mahadeo Admin',
-      phone_number: '9435188967',
-      email: 'admin@sundarammahadeogroup.com',
-      password_hash: user.password_hash || SEED_ADMIN.password_hash,
-      role: 'ADMIN',
-      status: 'APPROVED',
-      current_address: 'HQ Central Office, Sundaram Mahadeo Group'
-    }], { onConflict: 'phone_number' }).catch(() => {});
+    try {
+      const { data: upsertData, error: upsertError } = await supabase
+        .from('users')
+        .upsert([{
+          id: user.id || SEED_ADMIN.id,
+          full_name: user.full_name || 'Sundaram Mahadeo Admin',
+          phone_number: '9435188967',
+          email: 'admin@sundarammahadeogroup.com',
+          password_hash: user.password_hash || SEED_ADMIN.password_hash,
+          role: 'ADMIN',
+          status: 'APPROVED',
+          current_address: 'HQ Central Office, Sundaram Mahadeo Group'
+        }], { onConflict: 'phone_number' })
+        .select();
+
+      if (upsertError) {
+        console.warn('[Admin Auto-Provision Supabase Warning]', upsertError.message);
+      }
+    } catch (err) {
+      console.warn('[Admin Auto-Provision Exception]', err);
+    }
   }
 
   return { token, user: authUser };
@@ -233,16 +289,16 @@ export async function directSupabaseRegister({ fullName, phoneNumber, currentAdd
     supervisor: ''
   };
 
-  // Try direct Supabase insertion
+  // Direct Supabase insertion with async/await and error check
   if (supabase) {
     try {
-      const { data: existing } = await supabase
+      const { data: existing, error: existError } = await supabase
         .from('users')
         .select('id')
         .or(`phone_number.eq.${cleanPhone},email.eq.${cleanEmail}`)
         .limit(1);
 
-      if (existing && existing.length > 0) {
+      if (!existError && existing && existing.length > 0) {
         throw new Error('A user with this phone number or email already exists.');
       }
 
@@ -288,8 +344,9 @@ export async function directSupabaseGetFirms() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!error && data && data.length > 0) {
-        // Normalize schema names
+      if (error) {
+        console.warn('[Supabase Get Firms Warning]', error.message);
+      } else if (data && data.length > 0) {
         const formatted = data.map(f => ({
           ...f,
           contactPerson: f.contact_person || f.contactPerson,
@@ -300,7 +357,7 @@ export async function directSupabaseGetFirms() {
         return formatted;
       }
     } catch (err) {
-      console.warn('[Supabase Get Firms]', err);
+      console.warn('[Supabase Get Firms Exception]', err);
     }
   }
   return getCached('offline_firms', SEED_FIRMS);
@@ -323,9 +380,16 @@ export async function directSupabaseSaveFirm(firmData) {
 
   if (supabase) {
     try {
-      await supabase.from('firms').upsert([record], { onConflict: 'id' });
+      const { error } = await supabase
+        .from('firms')
+        .upsert([record], { onConflict: 'id' })
+        .select();
+
+      if (error) {
+        console.warn('[Supabase Save Firm Warning]', error.message);
+      }
     } catch (e) {
-      console.warn('[Supabase Save Firm Error]', e);
+      console.warn('[Supabase Save Firm Exception]', e);
     }
   }
 
@@ -359,9 +423,16 @@ export async function directSupabaseStartShift(userId, openingOdometer, photo, l
 
   if (supabase) {
     try {
-      await supabase.from('shifts').insert([shiftRecord]);
+      const { error } = await supabase
+        .from('shifts')
+        .insert([shiftRecord])
+        .select();
+
+      if (error) {
+        console.warn('[Supabase Start Shift Warning]', error.message);
+      }
     } catch (e) {
-      console.warn('[Supabase Start Shift Error]', e);
+      console.warn('[Supabase Start Shift Exception]', e);
     }
   }
 
@@ -394,9 +465,17 @@ export async function directSupabaseCloseShift(shiftId, closingOdometer, photo, 
 
   if (supabase) {
     try {
-      await supabase.from('shifts').update(updates).eq('id', shiftId);
+      const { error } = await supabase
+        .from('shifts')
+        .update(updates)
+        .eq('id', shiftId)
+        .select();
+
+      if (error) {
+        console.warn('[Supabase Close Shift Warning]', error.message);
+      }
     } catch (e) {
-      console.warn('[Supabase Close Shift Error]', e);
+      console.warn('[Supabase Close Shift Exception]', e);
     }
   }
 
@@ -432,9 +511,16 @@ export async function directSupabaseLogVisit(visitData) {
 
   if (supabase) {
     try {
-      await supabase.from('visits').insert([record]);
+      const { error } = await supabase
+        .from('visits')
+        .insert([record])
+        .select();
+
+      if (error) {
+        console.warn('[Supabase Log Visit Warning]', error.message);
+      }
     } catch (e) {
-      console.warn('[Supabase Log Visit Error]', e);
+      console.warn('[Supabase Log Visit Exception]', e);
     }
   }
 
@@ -453,7 +539,9 @@ export async function directSupabaseGetVisits(userId) {
         query = query.or(`user_id.eq.${userId},exec_id.eq.${userId}`);
       }
       const { data, error } = await query;
-      if (!error && data) {
+      if (error) {
+        console.warn('[Supabase Get Visits Warning]', error.message);
+      } else if (data) {
         return data.map(v => ({
           ...v,
           firmName: v.firm_name || v.firmName,
@@ -466,7 +554,7 @@ export async function directSupabaseGetVisits(userId) {
         }));
       }
     } catch (e) {
-      console.warn('[Supabase Get Visits Error]', e);
+      console.warn('[Supabase Get Visits Exception]', e);
     }
   }
   return getCached('offline_visits', []);

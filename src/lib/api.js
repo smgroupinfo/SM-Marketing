@@ -118,9 +118,11 @@ async function handleSupabaseFallback(method, url, data) {
   if (cleanUrl === '/config' && method === 'get') {
     if (supabase) {
       try {
-        const { data: cfg } = await supabase.from('app_config').select('*').limit(1).single();
-        if (cfg) return { data: cfg };
-      } catch (e) {}
+        const { data: cfg, error: cfgError } = await supabase.from('app_config').select('*').limit(1).single();
+        if (!cfgError && cfg) return { data: cfg };
+      } catch (e) {
+        console.warn('[Supabase Config GET Error]', e);
+      }
     }
     return { data: DEFAULT_APP_CONFIG };
   }
@@ -128,8 +130,16 @@ async function handleSupabaseFallback(method, url, data) {
   if (cleanUrl === '/config' && method === 'put') {
     if (supabase) {
       try {
-        await supabase.from('app_config').upsert([{ id: 'global', ...data }], { onConflict: 'id' });
-      } catch (e) {}
+        const { error: upsertError } = await supabase
+          .from('app_config')
+          .upsert([{ id: 'global', ...data }], { onConflict: 'id' })
+          .select();
+        if (upsertError) {
+          console.warn('[Supabase Config PUT Warning]', upsertError.message);
+        }
+      } catch (e) {
+        console.warn('[Supabase Config PUT Error]', e);
+      }
     }
     return { data: { message: 'Configuration updated successfully', config: data } };
   }
@@ -138,11 +148,16 @@ async function handleSupabaseFallback(method, url, data) {
   if (cleanUrl === '/users' && method === 'get') {
     if (supabase) {
       try {
-        const { data: usersList } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-        if (usersList && usersList.length > 0) {
+        const { data: usersList, error: usersError } = await supabase
+          .from('users')
+          .select('*')
+          .order('created_at', { ascending: false });
+        if (!usersError && usersList && usersList.length > 0) {
           return { data: usersList.map(u => ({ ...u, fullName: u.full_name, phone: u.phone_number, currentAddress: u.current_address })) };
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[Supabase Users GET Error]', e);
+      }
     }
     const cachedUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
     return { data: cachedUsers.map(u => ({ ...u, fullName: u.full_name, phone: u.phone_number, currentAddress: u.current_address })) };
@@ -154,8 +169,17 @@ async function handleSupabaseFallback(method, url, data) {
     const { status, role } = data || {};
     if (supabase) {
       try {
-        await supabase.from('users').update({ status, role }).eq('id', id);
-      } catch (e) {}
+        const { error: statusError } = await supabase
+          .from('users')
+          .update({ status, role })
+          .eq('id', id)
+          .select();
+        if (statusError) {
+          console.warn('[Supabase User Status Update Warning]', statusError.message);
+        }
+      } catch (e) {
+        console.warn('[Supabase User Status Update Error]', e);
+      }
     }
     return { data: { message: `User status updated to ${status}` } };
   }
