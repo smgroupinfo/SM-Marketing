@@ -4,9 +4,20 @@ import {
   IndianRupee, CheckCircle, RefreshCw, Layers, CreditCard, 
   Car, UserCheck, AlertCircle, Eye, FileSpreadsheet, Award,
   Clock, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
-  Building2, Phone, MapPin, Search, Star, ShieldCheck, ChevronRight
+  Building2, Phone, MapPin, Search, Star, ShieldCheck, ChevronRight, User
 } from 'lucide-react';
 import { api } from '../lib/api';
+
+// Safe number & currency formatting utilities
+const formatINR = (val) => {
+  const num = Number(val || 0);
+  return isNaN(num) ? '0' : num.toLocaleString('en-IN');
+};
+
+const formatNum = (val) => {
+  const num = Number(val || 0);
+  return isNaN(num) ? '0' : num.toLocaleString('en-IN');
+};
 
 export default function AdminReports({ user, initialSubTab = 'overview' }) {
   const todayStr = new Date().toISOString().split('T')[0];
@@ -32,7 +43,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
 
   useEffect(() => {
     fetchReport();
-  }, [rangePreset, executiveId]);
+  }, [rangePreset, executiveId, startDate, endDate]);
 
   const handlePresetChange = (preset) => {
     setRangePreset(preset);
@@ -58,10 +69,60 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
         range: rangePreset,
         startDate,
         endDate,
-        executiveId
+        executiveId,
+        _t: Date.now()
       };
       const res = await api.get('/admin/reports', { params });
-      setReportData(res.data);
+      if (res.data) {
+        // Ensure complete defensive structure
+        const d = res.data;
+        setReportData({
+          ...d,
+          kpis: {
+            totalSalesValue: d.kpis?.totalSalesValue || 0,
+            totalVolumeUnits: d.kpis?.totalVolumeUnits || 0,
+            totalCollections: d.kpis?.totalCollections || 0,
+            totalKmTravelled: d.kpis?.totalKmTravelled || 0,
+            netSettledAmount: d.kpis?.netSettledAmount || 0,
+            totalVisitsCount: d.kpis?.totalVisitsCount || 0,
+            verifiedCount: d.kpis?.verifiedCount || 0,
+            rejectionRate: d.kpis?.rejectionRate || '0.0%'
+          },
+          salesSummary: {
+            totalSalesValue: d.salesSummary?.totalSalesValue || 0,
+            totalVolumeUnits: d.salesSummary?.totalVolumeUnits || 0,
+            byProduct: Array.isArray(d.salesSummary?.byProduct) ? d.salesSummary.byProduct : []
+          },
+          collectionsSummary: {
+            totalCollections: d.collectionsSummary?.totalCollections || 0,
+            byMode: Array.isArray(d.collectionsSummary?.byMode) ? d.collectionsSummary.byMode : [],
+            transactions: Array.isArray(d.collectionsSummary?.transactions) ? d.collectionsSummary.transactions : []
+          },
+          reimbursementsSummary: {
+            kmRate: d.reimbursementsSummary?.kmRate || 5,
+            totalKmTravelled: d.reimbursementsSummary?.totalKmTravelled || 0,
+            totalKmPayout: d.reimbursementsSummary?.totalKmPayout || 0,
+            totalFoodingAllowance: d.reimbursementsSummary?.totalFoodingAllowance || 0,
+            totalMiscExpenses: d.reimbursementsSummary?.totalMiscExpenses || 0,
+            netSettledAmount: d.reimbursementsSummary?.netSettledAmount || 0,
+            byExecutive: Array.isArray(d.reimbursementsSummary?.byExecutive) ? d.reimbursementsSummary.byExecutive : []
+          },
+          visitPerformance: {
+            rejectionRate: d.visitPerformance?.rejectionRate || '0.0%',
+            byExecutive: Array.isArray(d.visitPerformance?.byExecutive) ? d.visitPerformance.byExecutive : []
+          },
+          topPerformersExecs: Array.isArray(d.topPerformersExecs) ? d.topPerformersExecs : [],
+          top10PurchasingCompanies: Array.isArray(d.top10PurchasingCompanies) ? d.top10PurchasingCompanies : [],
+          top10TimelyPaymentCompanies: Array.isArray(d.top10TimelyPaymentCompanies) ? d.top10TimelyPaymentCompanies : [],
+          top10LowestPurchasingCompanies: Array.isArray(d.top10LowestPurchasingCompanies) ? d.top10LowestPurchasingCompanies : [],
+          top10SlowPaymentCompanies: Array.isArray(d.top10SlowPaymentCompanies) ? d.top10SlowPaymentCompanies : [],
+          rankingsSummary: d.rankingsSummary || {
+            topBuyerGrossVolume: 0,
+            totalOverdueInSlowAccounts: 0,
+            avgGroupTurnaroundDays: '0.0'
+          }
+        });
+      }
     } catch (err) {
       console.error('Failed to fetch admin reports', err);
     } finally {
@@ -110,25 +171,25 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
         // Section 2: Sales & Volume Summary
         csv.push(`=== 2. SALES & VOLUME SUMMARY BY PRODUCT ===`);
         csv.push(`Product Name,Unit Type,Quantity Sold,Unit Price (INR),Total Sales Value (INR)`);
-        reportData.salesSummary?.byProduct.forEach(p => {
+        (reportData.salesSummary?.byProduct || []).forEach(p => {
           csv.push(`"${p.productName}",${p.unit},${p.quantity},${p.unitPrice},${p.totalSalesValue}`);
         });
-        csv.push(`TOTAL VOLUME,,${reportData.salesSummary?.totalVolumeUnits},,${reportData.salesSummary?.totalSalesValue}`);
+        csv.push(`TOTAL VOLUME,,${reportData.salesSummary?.totalVolumeUnits || 0},,${reportData.salesSummary?.totalSalesValue || 0}`);
         csv.push(``);
 
         // Section 3: Collections by Mode
         csv.push(`=== 3. COLLECTIONS SUMMARY BY PAYMENT INSTRUMENT ===`);
         csv.push(`Payment Mode,Transaction Count,Total Amount (INR),Percentage Share (%)`);
-        reportData.collectionsSummary?.byMode.forEach(m => {
+        (reportData.collectionsSummary?.byMode || []).forEach(m => {
           csv.push(`${m.mode},${m.count},${m.amount},${m.percentage}%`);
         });
-        csv.push(`TOTAL COLLECTIONS,,${reportData.collectionsSummary?.totalCollections},100%`);
+        csv.push(`TOTAL COLLECTIONS,,${reportData.collectionsSummary?.totalCollections || 0},100%`);
         csv.push(``);
 
         // Section 4: Transactions Ledger
         csv.push(`=== 4. PAYMENT TRANSACTIONS LEDGER ===`);
         csv.push(`Transaction ID,Date/Time,Executive Name,Client / Firm Name,Payment Mode,Reference / UTR No,Amount (INR),Clearance Status`);
-        reportData.collectionsSummary?.transactions.forEach(tx => {
+        (reportData.collectionsSummary?.transactions || []).forEach(tx => {
           csv.push(`"${tx.id}","${tx.dateTime}","${tx.execName}","${tx.clientName}",${tx.mode},"${tx.refNumber}",${tx.amount},"${tx.status}"`);
         });
         csv.push(``);
@@ -136,16 +197,16 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
         // Section 5: Reimbursements & Claims
         csv.push(`=== 5. REIMBURSEMENTS & FIELD CLAIMS ===`);
         csv.push(`Executive Name,KM Travelled,Rate (INR/KM),KM Payout (INR),Fooding Allowance (INR),Misc Expenses (INR),Net Settled Total (INR),Settlement Status`);
-        reportData.reimbursementsSummary?.byExecutive.forEach(r => {
+        (reportData.reimbursementsSummary?.byExecutive || []).forEach(r => {
           csv.push(`"${r.execName}",${r.kms},${r.kmRate},${r.kmPayout},${r.foodingAllowance},${r.miscExpenses},${r.netSettled},"${r.status}"`);
         });
-        csv.push(`GROUP TOTALS,${reportData.reimbursementsSummary?.totalKmTravelled},,${reportData.reimbursementsSummary?.totalKmPayout},${reportData.reimbursementsSummary?.totalFoodingAllowance},${reportData.reimbursementsSummary?.totalMiscExpenses},${reportData.reimbursementsSummary?.netSettledAmount},`);
+        csv.push(`GROUP TOTALS,${reportData.reimbursementsSummary?.totalKmTravelled || 0},,${reportData.reimbursementsSummary?.totalKmPayout || 0},${reportData.reimbursementsSummary?.totalFoodingAllowance || 0},${reportData.reimbursementsSummary?.totalMiscExpenses || 0},${reportData.reimbursementsSummary?.netSettledAmount || 0},`);
         csv.push(``);
 
         // Section 6: Visit Performance
         csv.push(`=== 6. VISIT PERFORMANCE & AUDIT STATUS ===`);
         csv.push(`Executive Name,Total Visits Logged,Verified Count,Rejected Count,Pending Verification,Rejection Rate`);
-        reportData.visitPerformance?.byExecutive.forEach(v => {
+        (reportData.visitPerformance?.byExecutive || []).forEach(v => {
           csv.push(`"${v.execName}",${v.totalVisits},${v.verified},${v.rejected},${v.pending},${v.rejectionRate}`);
         });
         csv.push(``);
@@ -212,14 +273,14 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
 
   // Filter rankings lists based on search query
   const filterList = (list) => {
-    if (!list) return [];
+    if (!list || !Array.isArray(list)) return [];
     if (!rankingSearch.trim()) return list;
     const q = rankingSearch.toLowerCase();
     return list.filter(item => 
       (item.execName && item.execName.toLowerCase().includes(q)) ||
       (item.firmName && item.firmName.toLowerCase().includes(q)) ||
       (item.contactPerson && item.contactPerson.toLowerCase().includes(q)) ||
-      (item.phone && item.phone.includes(q)) ||
+      (item.phone && String(item.phone).includes(q)) ||
       (item.gstin && item.gstin.toLowerCase().includes(q)) ||
       (item.primaryProduct && item.primaryProduct.toLowerCase().includes(q))
     );
@@ -460,40 +521,40 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-blue-100 flex flex-col justify-between">
                   <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">Gross Sales Value</span>
                   <p className="text-2xl font-black text-gray-900 mt-2">
-                    ₹{reportData.kpis.totalSalesValue.toLocaleString('en-IN')}
+                    ₹{formatINR(reportData.kpis?.totalSalesValue)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1 font-medium">
-                    {reportData.kpis.totalVolumeUnits.toLocaleString('en-IN')} units sold
+                    {formatNum(reportData.kpis?.totalVolumeUnits)} units sold
                   </p>
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-green-100 flex flex-col justify-between">
                   <span className="text-xs font-bold text-green-600 uppercase tracking-wider">Payment Collections</span>
                   <p className="text-2xl font-black text-green-700 mt-2">
-                    ₹{reportData.kpis.totalCollections.toLocaleString('en-IN')}
+                    ₹{formatINR(reportData.kpis?.totalCollections)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1 font-medium">
-                    {reportData.collectionsSummary?.byMode.reduce((sum, m) => sum + m.count, 0)} transactions
+                    {(reportData.collectionsSummary?.byMode || []).reduce((sum, m) => sum + (m.count || 0), 0)} transactions
                   </p>
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-purple-100 flex flex-col justify-between">
                   <span className="text-xs font-bold text-purple-600 uppercase tracking-wider">Mileage & Payouts</span>
                   <p className="text-2xl font-black text-purple-700 mt-2">
-                    ₹{reportData.kpis.netSettledAmount.toLocaleString('en-IN')}
+                    ₹{formatINR(reportData.kpis?.netSettledAmount)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1 font-medium">
-                    {reportData.kpis.totalKmTravelled} km @ ₹{reportData.reimbursementsSummary?.kmRate}/km
+                    {reportData.kpis?.totalKmTravelled || 0} km @ ₹{reportData.reimbursementsSummary?.kmRate || 5}/km
                   </p>
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-amber-100 flex flex-col justify-between">
                   <span className="text-xs font-bold text-amber-600 uppercase tracking-wider">Visits & Audit</span>
                   <p className="text-2xl font-black text-gray-900 mt-2">
-                    {reportData.kpis.totalVisitsCount} <span className="text-sm font-semibold text-gray-500">Visits</span>
+                    {formatNum(reportData.kpis?.totalVisitsCount)} <span className="text-sm font-semibold text-gray-500">Visits</span>
                   </p>
                   <p className="text-xs text-amber-700 mt-1 font-medium">
-                    Rejection Rate: <span className="font-bold">{reportData.kpis.rejectionRate}</span>
+                    Rejection Rate: <span className="font-bold">{reportData.kpis?.rejectionRate || '0.0%'}</span>
                   </p>
                 </div>
               </div>
@@ -544,7 +605,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                     <TrendingUp className="text-blue-600" size={18} /> 1. Sales & Volume Summary (By Product & Unit Type)
                   </h3>
                   <span className="text-xs font-bold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">
-                    Total: ₹{reportData.salesSummary?.totalSalesValue.toLocaleString('en-IN')}
+                    Total: ₹{formatINR(reportData.salesSummary?.totalSalesValue)}
                   </span>
                 </div>
 
@@ -560,7 +621,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {reportData.salesSummary?.byProduct.map((p, idx) => (
+                      {(reportData.salesSummary?.byProduct || []).map((p, idx) => (
                         <tr key={p.id || idx} className="hover:bg-gray-50">
                           <td className="p-4 font-bold text-gray-900">{p.productName}</td>
                           <td className="p-4">
@@ -569,13 +630,13 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             </span>
                           </td>
                           <td className="p-4 text-right font-semibold text-gray-800">
-                            {p.quantity.toLocaleString('en-IN')}
+                            {formatNum(p.quantity)}
                           </td>
                           <td className="p-4 text-right text-gray-600">
-                            ₹{p.unitPrice.toLocaleString('en-IN')}
+                            ₹{formatINR(p.unitPrice)}
                           </td>
                           <td className="p-4 text-right font-black text-green-700">
-                            ₹{p.totalSalesValue.toLocaleString('en-IN')}
+                            ₹{formatINR(p.totalSalesValue)}
                           </td>
                         </tr>
                       ))}
@@ -583,11 +644,11 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                         <td className="p-4">CONSOLIDATED VOLUME & BILLING</td>
                         <td className="p-4">-</td>
                         <td className="p-4 text-right text-blue-900">
-                          {reportData.salesSummary?.totalVolumeUnits.toLocaleString('en-IN')}
+                          {formatNum(reportData.salesSummary?.totalVolumeUnits)}
                         </td>
                         <td className="p-4 text-right">-</td>
                         <td className="p-4 text-right text-green-800 text-base">
-                          ₹{reportData.salesSummary?.totalSalesValue.toLocaleString('en-IN')}
+                          ₹{formatINR(reportData.salesSummary?.totalSalesValue)}
                         </td>
                       </tr>
                     </tbody>
@@ -602,7 +663,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                     <CreditCard className="text-green-600" size={18} /> 2. Payment Collections Ledger (By Mode & Transaction IDs)
                   </h3>
                   <span className="text-xs font-bold bg-green-100 text-green-800 px-2.5 py-1 rounded-full">
-                    Total Collections: ₹{reportData.collectionsSummary?.totalCollections.toLocaleString('en-IN')}
+                    Total Collections: ₹{formatINR(reportData.collectionsSummary?.totalCollections)}
                   </span>
                 </div>
 
@@ -610,7 +671,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                 <div className="p-5 border-b border-gray-100 bg-gray-50/30">
                   <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Grouped Payment Mode Breakdown</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                    {reportData.collectionsSummary?.byMode.map(m => (
+                    {(reportData.collectionsSummary?.byMode || []).map(m => (
                       <div key={m.mode} className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
                         <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
                           m.mode === 'NEFT' ? 'bg-blue-100 text-blue-800' :
@@ -618,10 +679,10 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                           m.mode === 'Cash' ? 'bg-green-100 text-green-800' :
                           m.mode === 'Cheque' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {m.mode} ({m.count})
+                          {m.mode} ({m.count || 0})
                         </span>
-                        <p className="font-black text-gray-900 mt-2 text-base">₹{m.amount.toLocaleString('en-IN')}</p>
-                        <p className="text-[11px] text-gray-500 font-medium">{m.percentage}% of total</p>
+                        <p className="font-black text-gray-900 mt-2 text-base">₹{formatINR(m.amount)}</p>
+                        <p className="text-[11px] text-gray-500 font-medium">{m.percentage || '0'}% of total</p>
                       </div>
                     ))}
                   </div>
@@ -642,7 +703,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {reportData.collectionsSummary?.transactions.map(tx => (
+                      {(reportData.collectionsSummary?.transactions || []).map(tx => (
                         <tr key={tx.id} className="hover:bg-gray-50">
                           <td className="p-3.5">
                             <p className="font-bold text-gray-900">{tx.id}</p>
@@ -657,7 +718,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                           </td>
                           <td className="p-3.5 font-mono text-gray-500">{tx.refNumber}</td>
                           <td className="p-3.5 text-right font-black text-blue-700">
-                            ₹{tx.amount.toLocaleString('en-IN')}
+                            ₹{formatINR(tx.amount)}
                           </td>
                           <td className="p-3.5 text-center">
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -680,7 +741,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                     <Car className="text-purple-600" size={18} /> 3. Reimbursements & Mileage Settlement (KM × Rate + Allowances)
                   </h3>
                   <span className="text-xs font-bold bg-purple-100 text-purple-800 px-2.5 py-1 rounded-full">
-                    Rate: ₹{reportData.reimbursementsSummary?.kmRate}/km • Fooding: ₹{reportData.reimbursementsSummary?.totalFoodingAllowance > 0 ? 250 : 0}/day
+                    Rate: ₹{reportData.reimbursementsSummary?.kmRate || 5}/km • Fooding: ₹{(reportData.reimbursementsSummary?.totalFoodingAllowance || 0) > 0 ? 250 : 0}/day
                   </span>
                 </div>
 
@@ -698,15 +759,15 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {reportData.reimbursementsSummary?.byExecutive.map(r => (
+                      {(reportData.reimbursementsSummary?.byExecutive || []).map(r => (
                         <tr key={r.execId} className="hover:bg-gray-50">
                           <td className="p-4 font-bold text-gray-900">{r.execName}</td>
                           <td className="p-4 text-right font-semibold text-gray-800">{r.kms} km</td>
-                          <td className="p-4 text-right text-gray-700">₹{r.kmPayout.toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-right text-gray-700">₹{r.foodingAllowance.toLocaleString('en-IN')}</td>
-                          <td className="p-4 text-right text-gray-700">₹{r.miscExpenses.toLocaleString('en-IN')}</td>
+                          <td className="p-4 text-right text-gray-700">₹{formatINR(r.kmPayout)}</td>
+                          <td className="p-4 text-right text-gray-700">₹{formatINR(r.foodingAllowance)}</td>
+                          <td className="p-4 text-right text-gray-700">₹{formatINR(r.miscExpenses)}</td>
                           <td className="p-4 text-right font-black text-purple-700">
-                            ₹{r.netSettled.toLocaleString('en-IN')}
+                            ₹{formatINR(r.netSettled)}
                           </td>
                           <td className="p-4 text-center">
                             <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-green-100 text-green-800">
@@ -717,12 +778,12 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       ))}
                       <tr className="bg-purple-50/60 font-black text-gray-900 border-t-2 border-purple-200">
                         <td className="p-4">GROUP TOTAL CLAIMS</td>
-                        <td className="p-4 text-right text-purple-900">{reportData.reimbursementsSummary?.totalKmTravelled} km</td>
-                        <td className="p-4 text-right">₹{reportData.reimbursementsSummary?.totalKmPayout.toLocaleString('en-IN')}</td>
-                        <td className="p-4 text-right">₹{reportData.reimbursementsSummary?.totalFoodingAllowance.toLocaleString('en-IN')}</td>
-                        <td className="p-4 text-right">₹{reportData.reimbursementsSummary?.totalMiscExpenses.toLocaleString('en-IN')}</td>
+                        <td className="p-4 text-right text-purple-900">{reportData.reimbursementsSummary?.totalKmTravelled || 0} km</td>
+                        <td className="p-4 text-right">₹{formatINR(reportData.reimbursementsSummary?.totalKmPayout)}</td>
+                        <td className="p-4 text-right">₹{formatINR(reportData.reimbursementsSummary?.totalFoodingAllowance)}</td>
+                        <td className="p-4 text-right">₹{formatINR(reportData.reimbursementsSummary?.totalMiscExpenses)}</td>
                         <td className="p-4 text-right text-purple-900 text-base">
-                          ₹{reportData.reimbursementsSummary?.netSettledAmount.toLocaleString('en-IN')}
+                          ₹{formatINR(reportData.reimbursementsSummary?.netSettledAmount)}
                         </td>
                         <td className="p-4 text-center">-</td>
                       </tr>
@@ -738,7 +799,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                     <UserCheck className="text-amber-600" size={18} /> 4. Visit Performance & GPS Verification Audits
                   </h3>
                   <span className="text-xs font-bold bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full">
-                    Rejection Rate: {reportData.visitPerformance?.rejectionRate}
+                    Rejection Rate: {reportData.visitPerformance?.rejectionRate || '0.0%'}
                   </span>
                 </div>
 
@@ -755,7 +816,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {reportData.visitPerformance?.byExecutive.map(v => (
+                      {(reportData.visitPerformance?.byExecutive || []).map(v => (
                         <tr key={v.execId} className="hover:bg-gray-50">
                           <td className="p-4 font-bold text-gray-900">{v.execName}</td>
                           <td className="p-4 text-center font-bold text-gray-800">{v.totalVisits}</td>
@@ -837,39 +898,39 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             <p className="text-[11px] text-gray-400 mt-0.5">{exec.territory}</p>
                           </td>
                           <td className="p-4 text-right font-black text-green-700 text-base">
-                            ₹{exec.salesValue.toLocaleString('en-IN')}
+                            ₹{formatINR(exec.salesValue)}
                           </td>
                           <td className="p-4 text-right font-semibold text-gray-800">
-                            {exec.volumeUnits.toLocaleString('en-IN')}
+                            {formatNum(exec.volumeUnits)}
                           </td>
                           <td className="p-4 text-right font-black text-blue-700">
-                            ₹{exec.collections.toLocaleString('en-IN')}
+                            ₹{formatINR(exec.collections)}
                           </td>
                           <td className="p-4 text-right font-bold text-amber-700">
-                            ₹{exec.incentives.toLocaleString('en-IN')}
+                            ₹{formatINR(exec.incentives)}
                           </td>
                           <td className="p-4 text-right text-xs">
-                            <p className="font-bold text-gray-900">{exec.kms} km</p>
-                            <p className="text-gray-500">₹{exec.netReimbursement.toLocaleString('en-IN')}</p>
+                            <p className="font-bold text-gray-900">{exec.kms || 0} km</p>
+                            <p className="text-gray-500">₹{formatINR(exec.netReimbursement)}</p>
                           </td>
                           <td className="p-4 text-center">
                             <span className="px-2.5 py-1 bg-gray-100 text-gray-800 rounded-lg text-xs font-bold">
-                              {exec.visitsCount} logged
+                              {exec.visitsCount || 0} logged
                             </span>
                           </td>
                           <td className="p-4 text-center">
                             <div className="inline-flex flex-col items-center">
                               <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
-                                exec.score >= 85 ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300' :
-                                exec.score >= 70 ? 'bg-blue-100 text-blue-800' :
+                                (exec.score || 0) >= 85 ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300' :
+                                (exec.score || 0) >= 70 ? 'bg-blue-100 text-blue-800' :
                                 'bg-gray-100 text-gray-700'
                               }`}>
-                                {exec.score} pts • {exec.rating}
+                                {exec.score || 0} pts • {exec.rating}
                               </span>
                               <div className="w-16 bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
                                 <div 
-                                  className={`h-full ${exec.score >= 85 ? 'bg-purple-600' : exec.score >= 70 ? 'bg-blue-600' : 'bg-gray-500'}`}
-                                  style={{ width: `${exec.score}%` }}
+                                  className={`h-full ${(exec.score || 0) >= 85 ? 'bg-purple-600' : (exec.score || 0) >= 70 ? 'bg-blue-600' : 'bg-gray-500'}`}
+                                  style={{ width: `${exec.score || 0}%` }}
                                 ></div>
                               </div>
                             </div>
@@ -900,7 +961,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                 </div>
                 <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/20 text-right">
                   <span className="text-xs text-emerald-200">Combined Turnover:</span>
-                  <p className="font-black text-lg">₹{(reportData.rankingsSummary?.topBuyerGrossVolume || 0).toLocaleString('en-IN')}</p>
+                  <p className="font-black text-lg">₹{formatINR(reportData.rankingsSummary?.topBuyerGrossVolume)}</p>
                 </div>
               </div>
 
@@ -945,18 +1006,18 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             </span>
                           </td>
                           <td className="p-4 text-right font-black text-emerald-800 text-base">
-                            ₹{firm.totalPurchased.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPurchased)}
                           </td>
                           <td className="p-4 text-right font-bold text-gray-900">
-                            {firm.totalVolume.toLocaleString('en-IN')} units
+                            {formatNum(firm.totalVolume)} units
                           </td>
                           <td className="p-4 text-right font-black text-blue-700">
-                            ₹{firm.totalPaid.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPaid)}
                           </td>
                           <td className="p-4 text-right">
                             {firm.outstandingDues > 0 ? (
                               <span className="font-bold text-amber-700">
-                                ₹{firm.outstandingDues.toLocaleString('en-IN')}
+                                ₹{formatINR(firm.outstandingDues)}
                               </span>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">
@@ -1056,10 +1117,10 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             </span>
                           </td>
                           <td className="p-4 text-right font-black text-green-700 text-base">
-                            ₹{firm.totalPaid.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPaid)}
                           </td>
                           <td className="p-4 text-right font-bold text-gray-800">
-                            ₹{firm.totalPurchased.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPurchased)}
                           </td>
                           <td className="p-4">
                             <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
@@ -1132,10 +1193,10 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             <p className="text-[11px] text-gray-400 font-mono mt-0.5">GSTIN: {firm.gstin}</p>
                           </td>
                           <td className="p-4 text-right font-black text-gray-900 text-base">
-                            ₹{firm.totalPurchased.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPurchased)}
                           </td>
                           <td className="p-4 text-center font-bold text-gray-700">
-                            {firm.orderCount} orders
+                            {firm.orderCount || 0} orders
                           </td>
                           <td className="p-4 text-center text-xs text-gray-600 font-medium">
                             {firm.lastOrderDate}
@@ -1185,7 +1246,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                 </div>
                 <div className="bg-white/10 px-4 py-2 rounded-xl backdrop-blur-sm border border-white/20 text-right">
                   <span className="text-xs text-rose-200">Total Delayed Overdue:</span>
-                  <p className="font-black text-lg">₹{(reportData.rankingsSummary?.totalOverdueInSlowAccounts || 0).toLocaleString('en-IN')}</p>
+                  <p className="font-black text-lg">₹{formatINR(reportData.rankingsSummary?.totalOverdueInSlowAccounts)}</p>
                 </div>
               </div>
 
@@ -1233,13 +1294,13 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                             </div>
                           </td>
                           <td className="p-4 text-right font-black text-rose-700 text-base">
-                            ₹{firm.outstandingDues.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.outstandingDues)}
                           </td>
                           <td className="p-4 text-right font-bold text-gray-800">
-                            ₹{firm.totalPurchased.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPurchased)}
                           </td>
                           <td className="p-4 text-right font-bold text-gray-600">
-                            ₹{firm.totalPaid.toLocaleString('en-IN')}
+                            ₹{formatINR(firm.totalPaid)}
                           </td>
                           <td className="p-4 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-xs font-black ${

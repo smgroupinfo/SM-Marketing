@@ -861,10 +861,10 @@ function Login({ onLogin }) {
       <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
         <div className="text-center mb-6">
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">
-            {isRegistering ? 'Field Executive Registration' : 'Sundaram Mahadeo Group'}
+            {isRegistering ? 'Field Executive Registration' : 'SM Marketing'}
           </h2>
-          <p className="text-xs text-gray-500 font-medium mt-1">
-            {isRegistering ? 'Submit profile for Administrator approval' : 'Official Financial & Operational Portal'}
+          <p className="text-xs text-gray-500 font-semibold mt-1 tracking-wide">
+            {isRegistering ? 'Submit profile for Administrator approval' : 'Official Marketing APP OF SMM'}
           </p>
         </div>
 
