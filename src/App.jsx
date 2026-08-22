@@ -816,7 +816,7 @@ function Login({ onLogin }) {
         onLogin(res.data.token, res.data.user);
       }
     } catch (err) {
-      const errMsg = err.response?.data?.error || 'Authentication failed';
+      const errMsg = err.response?.data?.error || err.message || 'Authentication failed';
       if (errMsg.toLowerCase().includes('pending')) {
         setStatusMessage({
           type: 'pending_warning',
