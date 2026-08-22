@@ -436,6 +436,10 @@ export async function directSupabaseStartShift(userId, openingOdometer, photo, l
     }
   }
 
+  const history = getCached('shifts_history', []);
+  history.unshift(shiftRecord);
+  setCached('shifts_history', history);
+
   localStorage.setItem('active_shift', JSON.stringify({
     ...shiftRecord,
     userId,
@@ -479,8 +483,41 @@ export async function directSupabaseCloseShift(shiftId, closingOdometer, photo, 
     }
   }
 
+  const history = getCached('shifts_history', []);
+  const idx = history.findIndex(s => s.id === shiftId);
+  const updatedShift = { ...activeShift, ...updates, totalKms };
+  if (idx >= 0) history[idx] = updatedShift;
+  else history.unshift(updatedShift);
+  setCached('shifts_history', history);
+
   localStorage.removeItem('active_shift');
-  return { ...activeShift, ...updates, totalKms };
+  return updatedShift;
+}
+
+export async function directSupabaseGetShifts(userId) {
+  if (supabase) {
+    try {
+      let query = supabase.from('shifts').select('*').order('start_time', { ascending: false });
+      if (userId && userId !== 'ALL') {
+        query = query.eq('user_id', userId);
+      }
+      const { data, error } = await query;
+      if (!error && data) {
+        return data.map(s => ({
+          ...s,
+          userId: s.user_id || s.userId,
+          openingOdometer: s.opening_odometer !== undefined ? s.opening_odometer : s.openingOdometer,
+          closingOdometer: s.closing_odometer !== undefined ? s.closing_odometer : s.closingOdometer,
+          totalKms: s.total_kms !== undefined ? s.total_kms : (s.totalKms || 0),
+          startTime: s.start_time || s.startTime,
+          endTime: s.end_time || s.endTime
+        }));
+      }
+    } catch (e) {
+      console.warn('[Supabase Get Shifts Exception]', e);
+    }
+  }
+  return getCached('shifts_history', []);
 }
 
 // ==============================================================================

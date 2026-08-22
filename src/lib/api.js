@@ -7,6 +7,7 @@ import {
   directSupabaseSaveFirm,
   directSupabaseStartShift,
   directSupabaseCloseShift,
+  directSupabaseGetShifts,
   directSupabaseLogVisit,
   directSupabaseGetVisits,
   DEFAULT_APP_CONFIG,
@@ -51,7 +52,7 @@ axiosInstance.interceptors.request.use((config) => {
 });
 
 // Helper function to build intelligent reports and rankings directly from visits/shifts
-function generateFallbackAnalytics(firms, visits, shifts, users, config) {
+function generateFallbackAnalytics(firms = [], visits = [], shifts = [], users = [], config = {}) {
   const kmRate = config?.kmRate || 5;
   const foodingRate = config?.foodingAllowance || 250;
   const todayStr = new Date().toISOString().split('T')[0];
@@ -60,9 +61,10 @@ function generateFallbackAnalytics(firms, visits, shifts, users, config) {
   let totalCollections = 0;
   const unitMap = {};
   const modeMap = {};
+  const productMap = {};
 
   const todayVisits = visits.filter(v => (v.paymentDate || v.timestamp || '').startsWith(todayStr));
-  const todayShifts = shifts.filter(s => (s.startTime || '').startsWith(todayStr));
+  const todayShifts = shifts.filter(s => (s.startTime || s.start_time || '').startsWith(todayStr));
 
   visits.forEach(v => {
     const val = parseFloat(v.orderValue || 0);
@@ -70,155 +72,267 @@ function generateFallbackAnalytics(firms, visits, shifts, users, config) {
     const qty = parseFloat(v.quantity || 0);
     const u = v.unit || 'Bags';
     const m = v.paymentMode || 'Cash';
+    const prod = v.product || 'Standard Product';
 
     totalBilling += val;
     totalCollections += col;
-    unitMap[u] = (unitMap[u] || 0) + qty;
+    if (qty > 0) {
+      unitMap[u] = (unitMap[u] || 0) + qty;
+    }
     if (col > 0) {
       if (!modeMap[m]) modeMap[m] = { amount: 0, count: 0 };
       modeMap[m].amount += col;
       modeMap[m].count += 1;
     }
+    if (val > 0 || qty > 0) {
+      if (!productMap[prod]) productMap[prod] = { unit: u, quantity: 0, totalSalesValue: 0 };
+      productMap[prod].quantity += qty;
+      productMap[prod].totalSalesValue += val;
+    }
   });
 
   const byUnit = Object.entries(unitMap).map(([unit, quantity]) => ({ unit, quantity }));
-  const byMode = Object.entries(modeMap).map(([mode, data]) => ({ mode, amount: data.amount, count: data.count }));
+  const byMode = Object.entries(modeMap).map(([mode, data]) => ({
+    mode,
+    amount: data.amount,
+    count: data.count,
+    percentage: totalCollections > 0 ? ((data.amount / totalCollections) * 100).toFixed(1) : '0.0'
+  }));
+
+  const byProduct = Object.entries(productMap).map(([productName, data], idx) => ({
+    id: `prod-${idx + 1}`,
+    productName,
+    unit: data.unit,
+    quantity: data.quantity,
+    totalSalesValue: data.totalSalesValue,
+    unitPrice: data.quantity > 0 ? Math.round(data.totalSalesValue / data.quantity) : 0
+  }));
 
   const execUsers = users.filter(u => u.role !== 'ADMIN');
   const execMetrics = execUsers.map((exec, idx) => {
-    const eVisits = visits.filter(v => v.exec_id === (exec.userId || exec.id) || v.userId === (exec.userId || exec.id));
+    const execId = exec.userId || exec.id || exec.user_id;
+    const eVisits = visits.filter(v => (v.exec_id === execId || v.userId === execId || v.user_id === execId));
+    const eShifts = shifts.filter(s => (s.userId === execId || s.user_id === execId));
     const eSales = eVisits.reduce((s, v) => s + parseFloat(v.orderValue || 0), 0);
     const eCol = eVisits.reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0);
+    const eKms = parseFloat(eShifts.reduce((s, sh) => s + parseFloat(sh.totalKms || sh.total_kms || 0), 0).toFixed(1));
+    const eKmPayout = Math.round(eKms * kmRate);
+    const eFooding = eShifts.length * foodingRate;
+    const eIncentives = eVisits.reduce((s, v) => s + parseFloat(v.bagIncentive || 0), 0);
+    const verified = eVisits.filter(v => v.status === 'VERIFIED' || !v.status).length;
+    
+    // Activity score derived from authentic actions
+    const activityScore = Math.min(100, Math.round((eSales / 50000) * 40 + (eCol / 50000) * 30 + eVisits.length * 5 + (eKms / 50) * 10));
+    const finalScore = (eSales === 0 && eCol === 0 && eVisits.length === 0 && eKms === 0) ? 0 : Math.max(10, Math.min(100, activityScore));
+    const rating = finalScore >= 80 ? 'Star Performer' : finalScore >= 50 ? 'High Achiever' : finalScore > 0 ? 'Active Runner' : 'No Activity';
+
     return {
       rank: idx + 1,
-      execId: exec.userId || exec.id,
+      execId,
       execName: exec.fullName || exec.full_name || 'Field Executive',
       phoneNumber: exec.phone || exec.phone_number || '',
       territory: exec.currentAddress || exec.current_address || 'Jharkhand Territory',
       salesValue: eSales,
       collections: eCol,
       visitsCount: eVisits.length,
-      score: Math.min(100, Math.max(30, Math.round(eSales / 1000 + eVisits.length * 5))),
-      rating: 'High Achiever',
-      kms: 18.5,
-      kmPayout: 92,
-      foodingAllowance: foodingRate,
-      netReimbursement: 342,
-      verifiedVisits: eVisits.length,
-      onTimePaymentRate: '100%'
+      score: finalScore,
+      rating,
+      kms: eKms,
+      kmPayout: eKmPayout,
+      foodingAllowance: eFooding,
+      incentives: eIncentives,
+      netReimbursement: eKmPayout + eFooding,
+      verifiedVisits: verified,
+      onTimePaymentRate: eVisits.length > 0 ? '100%' : '0%'
     };
   });
 
-  const top10PurchasingCompanies = firms.slice(0, 10).map((f, idx) => {
-    const fVisits = visits.filter(v => v.firmName === f.name);
-    const totalPurchased = fVisits.reduce((s, v) => s + parseFloat(v.orderValue || 0), 0) || (idx === 0 ? 185000 : idx === 1 ? 142000 : 85000);
-    const totalPaid = fVisits.reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0) || totalPurchased;
-    return {
-      rank: idx + 1,
+  // Calculate top purchasing companies strictly from real visits
+  const firmPurchases = {};
+  firms.forEach(f => {
+    firmPurchases[f.name] = {
       firmId: f.id,
       firmName: f.name,
-      gstin: f.gstin || '20AAACS0000X1Z1',
-      address: f.address || 'Ranchi',
-      contactPerson: f.contactPerson || f.contact_person || 'Manager',
+      gstin: f.gstin || '',
+      address: f.address || '',
+      contactPerson: f.contactPerson || f.contact_person || '',
       phone: f.phone || '',
-      totalPurchased,
-      totalPaid,
-      outstandingDues: Math.max(0, totalPurchased - totalPaid),
-      primaryProduct: f.brands_handled || 'Cement / Steel',
-      tier: idx < 3 ? 'Anchor Enterprise' : 'Key Dealer',
-      orderCount: Math.max(1, fVisits.length)
+      totalPurchased: 0,
+      totalPaid: 0,
+      orderCount: 0,
+      primaryProduct: f.brands_handled || f.brandsHandled || 'Materials'
     };
   });
 
-  const top10TimelyPaymentCompanies = top10PurchasingCompanies.map((f, idx) => ({
-    ...f,
-    rank: idx + 1,
-    avgDaysToPay: idx === 0 ? 0.5 : idx === 1 ? 1.0 : 2.5,
-    onTimeRatePercent: 100,
-    reliabilityRating: '⭐⭐⭐⭐⭐ 100% Credit Reliability'
-  }));
+  visits.forEach(v => {
+    const fName = (v.firmName || v.firm_name || '').trim();
+    if (!fName) return;
+    if (!firmPurchases[fName]) {
+      firmPurchases[fName] = {
+        firmId: 'f-auto-' + Date.now(),
+        firmName: fName,
+        gstin: '',
+        address: '',
+        contactPerson: '',
+        phone: '',
+        totalPurchased: 0,
+        totalPaid: 0,
+        orderCount: 0,
+        primaryProduct: v.product || 'Materials'
+      };
+    }
+    const val = parseFloat(v.orderValue || 0);
+    const col = parseFloat(v.collectedAmount || 0);
+    firmPurchases[fName].totalPurchased += val;
+    firmPurchases[fName].totalPaid += col;
+    if (val > 0) firmPurchases[fName].orderCount += 1;
+    if (v.product) firmPurchases[fName].primaryProduct = v.product;
+  });
 
-  const top10LowestPurchasingCompanies = firms.slice().reverse().slice(0, 10).map((f, idx) => ({
-    rank: idx + 1,
-    firmId: f.id,
-    firmName: f.name,
-    totalPurchased: 0,
-    orderCount: 0,
-    daysSinceLastOrder: 45,
-    status: 'Dormant Account',
-    recommendedAction: 'Schedule executive visit & on-boarding verification'
-  }));
+  const allFirmList = Object.values(firmPurchases);
+  const top10PurchasingCompanies = allFirmList
+    .filter(f => f.totalPurchased > 0)
+    .sort((a, b) => b.totalPurchased - a.totalPurchased)
+    .slice(0, 10)
+    .map((f, idx) => ({
+      rank: idx + 1,
+      ...f,
+      outstandingDues: Math.max(0, f.totalPurchased - f.totalPaid),
+      tier: idx < 3 ? 'Anchor Enterprise' : 'Key Dealer'
+    }));
 
-  const top10SlowPaymentCompanies = firms.slice(0, 5).map((f, idx) => ({
-    rank: idx + 1,
-    firmId: f.id,
-    firmName: f.name,
-    avgDaysToPay: 14 + idx * 5,
-    outstandingDues: 25000 + idx * 15000,
-    riskLevel: 'Moderate Delay (7-20 Days)',
-    recoveryAction: 'Assign executive recovery visit & issue payment reminder notice'
-  }));
+  const top10TimelyPaymentCompanies = allFirmList
+    .filter(f => f.totalPaid > 0 && f.totalPurchased > 0)
+    .sort((a, b) => b.totalPaid - a.totalPaid)
+    .slice(0, 10)
+    .map((f, idx) => ({
+      rank: idx + 1,
+      ...f,
+      outstandingDues: Math.max(0, f.totalPurchased - f.totalPaid),
+      avgDaysToPay: 0.5,
+      onTimeRatePercent: 100,
+      reliabilityRating: '⭐⭐⭐⭐⭐ 100% Credit Reliability'
+    }));
 
-  const execActivity = execUsers.map(u => ({
-    id: u.userId || u.id,
-    name: u.fullName || u.full_name || 'Field Exec',
-    status: 'Active',
-    startOdometer: '1420',
-    totalVisitsToday: todayVisits.filter(v => v.userId === (u.userId || u.id) || v.exec_id === (u.userId || u.id)).length
-  }));
+  const top10LowestPurchasingCompanies = allFirmList
+    .slice()
+    .sort((a, b) => a.totalPurchased - b.totalPurchased || a.orderCount - b.orderCount)
+    .slice(0, 10)
+    .map((f, idx) => ({
+      rank: idx + 1,
+      firmId: f.firmId,
+      firmName: f.firmName,
+      totalPurchased: f.totalPurchased,
+      orderCount: f.orderCount,
+      daysSinceLastOrder: f.orderCount > 0 ? 5 : 0,
+      status: f.totalPurchased === 0 ? 'Dormant Account (0 Purchase)' : 'Low Purchase Volume',
+      recommendedAction: 'Schedule executive visit & on-boarding verification'
+    }));
+
+  const top10SlowPaymentCompanies = allFirmList
+    .filter(f => f.totalPurchased > 0 && f.totalPurchased > f.totalPaid)
+    .sort((a, b) => (b.totalPurchased - b.totalPaid) - (a.totalPurchased - a.totalPaid))
+    .slice(0, 5)
+    .map((f, idx) => ({
+      rank: idx + 1,
+      firmId: f.firmId,
+      firmName: f.firmName,
+      avgDaysToPay: 14 + idx * 5,
+      outstandingDues: Math.max(0, f.totalPurchased - f.totalPaid),
+      riskLevel: 'Moderate Delay (7-20 Days)',
+      recoveryAction: 'Assign executive recovery visit & issue payment reminder notice'
+    }));
+
+  const execActivity = execUsers.map(u => {
+    const uid = u.userId || u.id || u.user_id;
+    const activeShift = shifts.find(s => (s.userId === uid || s.user_id === uid) && s.status === 'ACTIVE');
+    const uVisitsToday = todayVisits.filter(v => (v.userId === uid || v.user_id === uid || v.exec_id === uid));
+    return {
+      id: uid,
+      name: u.fullName || u.full_name || 'Field Executive',
+      status: activeShift ? 'Active' : 'Off Duty',
+      startOdometer: activeShift ? `${activeShift.openingOdometer || activeShift.opening_odometer || '-'}` : '-',
+      totalVisitsToday: uVisitsToday.length
+    };
+  });
+
+  const activeCount = execActivity.filter(e => e.status === 'Active').length;
+  const totalFieldKmsToday = parseFloat(todayShifts.reduce((s, sh) => s + parseFloat(sh.totalKms || sh.total_kms || 0), 0).toFixed(1));
+  const totalKmTravelled = parseFloat(shifts.reduce((s, sh) => s + parseFloat(sh.totalKms || sh.total_kms || 0), 0).toFixed(1));
+  const totalKmPayout = Math.round(totalKmTravelled * kmRate);
+  const totalFoodingAllowance = shifts.length * foodingRate;
+  const netSettledAmount = totalKmPayout + totalFoodingAllowance;
+
+  // Real today sales & collections
+  let todaySalesValue = 0;
+  let todayVolumeUnits = 0;
+  let todayCollectionsVal = 0;
+  todayVisits.forEach(v => {
+    todaySalesValue += parseFloat(v.orderValue || 0);
+    todayCollectionsVal += parseFloat(v.collectedAmount || 0);
+    todayVolumeUnits += parseFloat(v.quantity || 0);
+  });
+
+  const verifiedVisitsCount = visits.filter(v => v.status === 'VERIFIED' || !v.status).length;
+  const rejectedVisitsCount = visits.filter(v => v.status === 'REJECTED').length;
 
   return {
     kpis: {
-      activeExecutives: Math.max(1, execActivity.length),
-      totalFieldKmsToday: parseFloat((todayShifts.reduce((s, sh) => s + parseFloat(sh.totalKms || 0), 0) || 45.2).toFixed(1)),
-      totalVisitsToday: todayVisits.length || visits.length || 6,
-      totalSalesValue: totalBilling || 485000,
-      totalVolumeUnits: 1250,
-      totalCollections: totalCollections || 420000,
-      totalKmTravelled: 125.4,
-      netSettledAmount: 1840,
-      totalVisitsCount: visits.length || 12,
-      verifiedCount: visits.length || 12,
-      rejectedCount: 0,
-      rejectionRate: '0.0%'
+      activeExecutives: activeCount,
+      totalFieldKmsToday,
+      totalVisitsToday: todayVisits.length,
+      totalSalesValue: todaySalesValue,
+      totalVolumeUnits: todayVolumeUnits,
+      totalCollections: todayCollectionsVal,
+      totalKmTravelled,
+      netSettledAmount,
+      totalVisitsCount: visits.length,
+      verifiedCount: verifiedVisitsCount,
+      rejectedCount: rejectedVisitsCount,
+      rejectionRate: visits.length > 0 ? ((rejectedVisitsCount / visits.length) * 100).toFixed(1) + '%' : '0.0%'
     },
     salesReport: {
-      totalBilling: totalBilling || 485000,
-      byUnit: byUnit.length > 0 ? byUnit : [{ unit: 'Bags', quantity: 850 }, { unit: 'MT', quantity: 24 }]
+      totalBilling,
+      byUnit
     },
     paymentReport: {
-      totalCollections: totalCollections || 420000,
-      byMode: byMode.length > 0 ? byMode : [{ mode: 'Cash', count: 4, amount: 180000 }, { mode: 'Google Pay / UPI', count: 6, amount: 240000 }]
+      totalCollections,
+      byMode
     },
     salesSummary: {
-      totalSalesValue: totalBilling || 485000,
-      totalVolumeUnits: 1250,
-      byProduct: [
-        { id: 'p-1', productName: 'Cement (UltraTech / ACC)', unit: 'Bags', quantity: 850, totalSalesValue: 285600, unitPrice: 336 },
-        { id: 'p-2', productName: 'TMT Steel (Tata Tiscon)', unit: 'MT', quantity: 24, totalSalesValue: 148800, unitPrice: 62000 }
-      ]
+      totalSalesValue: totalBilling,
+      totalVolumeUnits: Object.values(unitMap).reduce((a, b) => a + b, 0),
+      byProduct
     },
     collectionsSummary: {
-      totalCollections: totalCollections || 420000,
-      byMode: byMode.length > 0 ? byMode : [{ mode: 'Cash', count: 4, amount: 180000, percentage: '42.8' }, { mode: 'Google Pay / UPI', count: 6, amount: 240000, percentage: '57.2' }],
+      totalCollections,
+      byMode,
       transactions: []
     },
     reimbursementsSummary: {
       kmRate,
-      totalKmTravelled: 125.4,
-      totalKmPayout: Math.round(125.4 * kmRate),
-      totalFoodingAllowance: foodingRate * 3,
+      totalKmTravelled,
+      totalKmPayout,
+      totalFoodingAllowance,
       totalMiscExpenses: 0,
-      netSettledAmount: Math.round(125.4 * kmRate) + (foodingRate * 3),
+      netSettledAmount,
       byExecutive: execMetrics
     },
     visitPerformance: {
-      totalVisits: visits.length || 12,
-      verifiedCount: visits.length || 12,
-      rejectedCount: 0,
+      totalVisits: visits.length,
+      verifiedCount: verifiedVisitsCount,
+      rejectedCount: rejectedVisitsCount,
       pendingCount: 0,
-      rejectionRate: '0.0%',
-      byExecutive: execMetrics.map(e => ({ execId: e.execId, execName: e.execName, totalVisits: e.visitsCount, verified: e.visitsCount, rejected: 0, pending: 0, rejectionRate: '0.0%' }))
+      rejectionRate: visits.length > 0 ? ((rejectedVisitsCount / visits.length) * 100).toFixed(1) + '%' : '0.0%',
+      byExecutive: execMetrics.map(e => ({
+        execId: e.execId,
+        execName: e.execName,
+        totalVisits: e.visitsCount,
+        verified: e.verifiedVisits,
+        rejected: 0,
+        pending: 0,
+        rejectionRate: '0.0%'
+      }))
     },
     topPerformersExecs: execMetrics,
     top10PurchasingCompanies,
@@ -229,12 +343,27 @@ function generateFallbackAnalytics(firms, visits, shifts, users, config) {
       totalExecsRanked: execMetrics.length,
       topBuyerGrossVolume: top10PurchasingCompanies.reduce((s, f) => s + f.totalPurchased, 0),
       totalOverdueInSlowAccounts: top10SlowPaymentCompanies.reduce((s, f) => s + f.outstandingDues, 0),
-      avgGroupTurnaroundDays: '1.2'
+      avgGroupTurnaroundDays: top10TimelyPaymentCompanies.length > 0 ? '0.5' : '0.0'
     },
     activity: execActivity,
     execActivity,
-    liveLocation: execActivity.map(e => ({ id: e.id, name: e.name, lat: 23.3441, lng: 85.3096, lastUpdated: 'Just now' })),
-    routeHistory: { totalShiftKms: 28.4, stops: [{ id: 's1', time: '09:30 AM', name: 'Start Odometer: 1420', lat: 23.3441, lng: 85.3096 }, { id: 's2', time: '11:15 AM', name: 'Sharma Hardware Visit', lat: 23.3512, lng: 85.3210 }] }
+    liveLocation: execActivity.filter(e => e.status === 'Active').map(e => ({
+      id: e.id,
+      name: e.name,
+      lat: 23.3441,
+      lng: 85.3096,
+      lastUpdated: 'Active'
+    })),
+    routeHistory: {
+      totalShiftKms: totalFieldKmsToday,
+      stops: todayVisits.map((v, i) => ({
+        id: `s${i + 1}`,
+        time: new Date(v.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        name: `${v.firmName || v.firm_name || 'Visit'} (${v.product || 'Order'})`,
+        lat: v.location?.lat || 23.3441,
+        lng: v.location?.lng || 85.3096
+      }))
+    }
   };
 }
 
@@ -384,25 +513,38 @@ async function handleSupabaseFallback(method, url, data) {
   // 12. Incentives & My Ledger: GET
   if (cleanUrl.startsWith('/incentives') && method === 'get') {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const visits = await directSupabaseGetVisits(user.userId || user.id);
+    const uid = user.userId || user.id;
+    const visits = await directSupabaseGetVisits(uid);
+    const shifts = await directSupabaseGetShifts(uid);
+    const config = JSON.parse(localStorage.getItem('app_config') || JSON.stringify(DEFAULT_APP_CONFIG));
+    const kmRate = config?.kmRate || 5;
+    const foodingRate = config?.foodingAllowance || 250;
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayShifts = shifts.filter(s => (s.startTime || s.start_time || '').startsWith(todayStr));
+    const todayKms = parseFloat(todayShifts.reduce((s, sh) => s + parseFloat(sh.totalKms || sh.total_kms || 0), 0).toFixed(1));
+    const kmPayout = Math.round(todayKms * kmRate);
+    const foodingPayout = todayShifts.length > 0 ? foodingRate : 0;
+
     const totalCollected = visits.reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0);
     const totalOrders = visits.reduce((s, v) => s + parseFloat(v.orderValue || 0), 0);
     const totalBags = visits.reduce((s, v) => s + parseFloat(v.bagIncentive || 0), 0);
+
     return {
       data: {
         summary: {
           totalCollected,
           totalOrders,
           totalBagIncentives: totalBags,
-          kmRate: 5,
-          dailyFoodingAllowance: 250,
-          totalKmPayout: 92,
-          totalFoodingPayout: 250,
-          netPayoutToday: totalBags + 92 + 250
+          kmRate,
+          dailyFoodingAllowance: foodingRate,
+          totalKmPayout: kmPayout,
+          totalFoodingPayout: foodingPayout,
+          netPayoutToday: totalBags + kmPayout + foodingPayout
         },
         instrumentBreakdown: {
-          cash: visits.filter(v => v.paymentMode === 'Cash').reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0),
-          googlePayUPI: visits.filter(v => v.paymentMode !== 'Cash').reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0)
+          cash: visits.filter(v => (v.paymentMode || '').toLowerCase().includes('cash')).reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0),
+          googlePayUPI: visits.filter(v => !(v.paymentMode || '').toLowerCase().includes('cash')).reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0)
         },
         recentVisits: visits.slice(0, 10)
       }
@@ -419,7 +561,7 @@ async function handleSupabaseFallback(method, url, data) {
   ) {
     const firms = await directSupabaseGetFirms();
     const visits = await directSupabaseGetVisits('ALL');
-    const shifts = JSON.parse(localStorage.getItem('shifts_history') || '[]');
+    const shifts = await directSupabaseGetShifts('ALL');
     const users = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
     const config = JSON.parse(localStorage.getItem('app_config') || JSON.stringify(DEFAULT_APP_CONFIG));
 
