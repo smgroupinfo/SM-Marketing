@@ -13,7 +13,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -21,15 +21,16 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android bcryptjs
 
-      - name: Build Web App
+      - name: Build Web App with Direct Supabase Fallbacks
         env:
+          # Uses GitHub Secrets if available, otherwise falls back to your Supabase project credentials
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://qbmezzgtsirybenjrsnb.supabase.co' }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFibWV6emd0c2lyeWJlbmpyc25iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcwMzYxMTksImV4cCI6MjEwMjYxMjExOX0.VPdouvdSJ8jl5gnqac0tsj3IKnnsu1gWJDp5kqfLe0o' }}
         run: npm run build
 
-      - name: Configure Capacitor
+      - name: Configure Capacitor for Standalone APK (Localhost/Direct Supabase)
         run: |
           cat <<EOF > capacitor.config.json
           {
@@ -38,12 +39,13 @@ jobs:
             "webDir": "dist",
             "server": {
               "androidScheme": "https",
+              "allowNavigation": ["*"],
               "cleartext": true
             }
           }
           EOF
 
-      - name: Sync Capacitor Android
+      - name: Sync Capacitor Android Engine
         run: |
           npx cap add android || true
           npx cap sync android
