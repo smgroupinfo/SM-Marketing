@@ -163,16 +163,27 @@ export default function AdminUMS({ user }) {
   const countActive = users.filter(u => u.status === 'ACTIVE').length;
   const countDisabled = users.filter(u => u.status === 'DISABLED').length;
 
+  const isExecutiveAssistant = user && user.role === 'EXECUTIVE_ASSISTANT';
+
   return (
     <div className="space-y-6">
       {/* Header & Stats Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <Users className="text-blue-600" size={24} /> User Management System (UMS)
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Users className="text-blue-600" size={24} /> User Management System (UMS)
+            </h2>
+            {isExecutiveAssistant && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                Read-Only Access
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500 mt-1">
-            Control employee gateway, approve new executive registrations, and manage duty credentials.
+            {isExecutiveAssistant 
+              ? 'View all registered field executives, assistants, and account statuses (Read-Only).' 
+              : 'Control employee gateway, approve new executive registrations, and manage duty credentials.'}
           </p>
         </div>
         <button 
@@ -183,6 +194,13 @@ export default function AdminUMS({ user }) {
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh List
         </button>
       </div>
+
+      {isExecutiveAssistant && (
+        <div className="p-3.5 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-xl text-xs flex items-center gap-2 font-medium">
+          <Shield size={16} className="text-indigo-600 shrink-0" />
+          <span>Executive Assistant profile active: You can inspect employee records, supervisors, and duty roles in read-only mode. Modifying accounts and password resets require Administrator authorization.</span>
+        </div>
+      )}
 
       {/* Global Status Message Toast */}
       {message.text && (
@@ -264,6 +282,7 @@ export default function AdminUMS({ user }) {
                   const isActive = u.status === 'ACTIVE';
                   const isDisabled = u.status === 'DISABLED';
                   const isAdminUser = u.role === 'ADMIN';
+                  const isEAUser = u.role === 'EXECUTIVE_ASSISTANT';
 
                   return (
                     <tr key={u.user_id} className={`hover:bg-blue-50/40 transition-colors ${isPending ? 'bg-amber-50/30' : ''}`}>
@@ -271,6 +290,7 @@ export default function AdminUMS({ user }) {
                         <div className="flex items-center gap-3">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
                             isAdminUser ? 'bg-purple-100 text-purple-700' :
+                            isEAUser ? 'bg-indigo-100 text-indigo-700' :
                             isActive ? 'bg-blue-100 text-blue-700' :
                             isPending ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
                           }`}>
@@ -280,6 +300,7 @@ export default function AdminUMS({ user }) {
                             <p className="font-bold text-gray-900 flex items-center gap-1.5">
                               {u.full_name}
                               {isAdminUser && <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">Admin</span>}
+                              {isEAUser && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded font-bold">Exec Assistant</span>}
                             </p>
                             <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                               <Phone size={12} className="text-gray-400" /> {u.phone_number || 'No phone'}
@@ -292,8 +313,12 @@ export default function AdminUMS({ user }) {
                       </td>
 
                       <td className="p-4">
-                        <span className="inline-block px-2.5 py-1 rounded-md text-xs font-semibold bg-gray-100 text-gray-800">
-                          {u.role || 'EXECUTIVE'}
+                        <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-semibold ${
+                          isAdminUser ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                          isEAUser ? 'bg-indigo-50 text-indigo-800 border border-indigo-200' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {u.role === 'EXECUTIVE_ASSISTANT' ? 'Executive Assistant' : u.role === 'ADMIN' ? 'Administrator' : u.role || 'EXECUTIVE'}
                         </span>
                         <p className="text-xs text-gray-500 mt-1">
                           <span className="text-gray-400">Supervisor:</span> {u.supervisor || <span className="text-gray-400 italic">Unassigned</span>}
@@ -319,59 +344,65 @@ export default function AdminUMS({ user }) {
                       </td>
 
                       <td className="p-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          {/* Quick 1-Click Approve / Activate */}
-                          {isPending && (
+                        {isExecutiveAssistant ? (
+                          <span className="text-xs text-gray-400 italic font-medium px-2 py-1 bg-gray-50 rounded-lg">
+                            Read-Only Record
+                          </span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            {/* Quick 1-Click Approve / Activate */}
+                            {isPending && (
+                              <button
+                                onClick={() => handleQuickStatusChange(u, 'ACTIVE')}
+                                disabled={actionLoading}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95"
+                                title="Grant instant login access"
+                              >
+                                <UserCheck size={14} /> Approve
+                              </button>
+                            )}
+
+                            {isDisabled && (
+                              <button
+                                onClick={() => handleQuickStatusChange(u, 'ACTIVE')}
+                                disabled={actionLoading}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-all active:scale-95"
+                                title="Re-activate user"
+                              >
+                                <Check size={14} /> Activate
+                              </button>
+                            )}
+
+                            {isActive && !isAdminUser && (
+                              <button
+                                onClick={() => handleQuickStatusChange(u, 'DISABLED')}
+                                disabled={actionLoading}
+                                className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium rounded-lg transition-colors"
+                                title="Disable executive access"
+                              >
+                                <UserX size={14} /> Disable
+                              </button>
+                            )}
+
+                            {/* Edit User Details */}
                             <button
-                              onClick={() => handleQuickStatusChange(u, 'ACTIVE')}
-                              disabled={actionLoading}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95"
-                              title="Grant instant login access"
+                              onClick={() => openEditModal(u)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors"
+                              title="Edit User Details"
                             >
-                              <UserCheck size={14} /> Approve
+                              <Edit size={14} /> Edit
                             </button>
-                          )}
 
-                          {isDisabled && (
+                            {/* Admin Reset Password Override */}
                             <button
-                              onClick={() => handleQuickStatusChange(u, 'ACTIVE')}
-                              disabled={actionLoading}
-                              className="flex items-center gap-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-lg transition-all active:scale-95"
-                              title="Re-activate user"
+                              onClick={() => openResetPasswordModal(u)}
+                              className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium rounded-lg transition-colors"
+                              title="Admin Reset Password"
                             >
-                              <Check size={14} /> Activate
+                              <KeyRound size={14} /> Password
                             </button>
-                          )}
-
-                          {isActive && !isAdminUser && (
-                            <button
-                              onClick={() => handleQuickStatusChange(u, 'DISABLED')}
-                              disabled={actionLoading}
-                              className="flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-medium rounded-lg transition-colors"
-                              title="Disable executive access"
-                            >
-                              <UserX size={14} /> Disable
-                            </button>
-                          )}
-
-                          {/* Edit User Details */}
-                          <button
-                            onClick={() => openEditModal(u)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors"
-                            title="Edit User Details"
-                          >
-                            <Edit size={14} /> Edit
-                          </button>
-
-                          {/* Admin Reset Password Override */}
-                          <button
-                            onClick={() => openResetPasswordModal(u)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-medium rounded-lg transition-colors"
-                            title="Admin Reset Password"
-                          >
-                            <KeyRound size={14} /> Password
-                          </button>
-                        </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -446,9 +477,10 @@ export default function AdminUMS({ user }) {
                   <select 
                     value={editForm.role} 
                     onChange={e => setEditForm({...editForm, role: e.target.value})} 
-                    className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
                   >
                     <option value="EXECUTIVE">Field Executive</option>
+                    <option value="EXECUTIVE_ASSISTANT">Executive Assistant (Read-Only Reports & Audit)</option>
                     <option value="MANAGER">Manager / Supervisor</option>
                     <option value="ADMIN">Administrator</option>
                   </select>

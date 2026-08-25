@@ -17,7 +17,13 @@ import IncentivesDashboard from './components/IncentivesDashboard';
 import FirmOnboarding from './components/FirmOnboarding';
 import TelegramAdminConfig from './components/TelegramAdminConfig';
 import NotificationCenter from './components/NotificationCenter';
-import { PermissionsCheckScreen, RevokedPermissionsOverlay, InitialInstallPermissionsModal } from './components/DevicePermissionsGuard';
+import { 
+  PermissionsCheckScreen, 
+  RevokedPermissionsOverlay, 
+  InitialInstallPermissionsModal,
+  DevicePermissionsHubModal 
+} from './components/DevicePermissionsGuard';
+import { subscribeToPushToasts } from './lib/notificationEngine';
 
 // Safe JSON parser safeguard
 export function safeJsonParse(jsonString, fallback = null) {
@@ -982,6 +988,20 @@ export function AppContent() {
   const [isBypassed, setIsBypassed] = useState(false);
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isPermissionsHubOpen, setIsPermissionsHubOpen] = useState(false);
+  const [pushToasts, setPushToasts] = useState([]);
+
+  // Subscribe to live In-App Push Toasts
+  useEffect(() => {
+    const unsubscribe = subscribeToPushToasts((toast) => {
+      setPushToasts((prev) => [toast, ...prev].slice(0, 3));
+      // Auto dismiss after duration
+      setTimeout(() => {
+        setPushToasts((prev) => prev.filter((t) => t.id !== toast.id));
+      }, toast.duration || 5000);
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Fetch unread notifications count
   const pollUnreadNotifications = async () => {
@@ -1010,9 +1030,9 @@ export function AppContent() {
       const parsed = safeJsonParse(localStorage.getItem('user'), null);
       if (parsed) {
         setUser(parsed);
-        if (parsed.role === 'ADMIN') {
+        if (parsed.role === 'ADMIN' || parsed.role === 'EXECUTIVE_ASSISTANT') {
           setCurrentPage('admin-dashboard');
-          setHasGrantedPermissions(true); // Admins do not require field sensor guard
+          setHasGrantedPermissions(true); // Admins and Executive Assistants do not require field sensor guard
         } else {
           setCurrentPage('dashboard');
         }
@@ -1177,9 +1197,11 @@ export function AppContent() {
   }
 
   const isAdmin = user && user.role === 'ADMIN';
+  const isExecutiveAssistant = user && user.role === 'EXECUTIVE_ASSISTANT';
+  const isPrivilegedStaff = isAdmin || isExecutiveAssistant;
 
   // 1. Mandatory Device Permissions Gate for Field Executives
-  if (!isAdmin && !hasGrantedPermissions) {
+  if (!isPrivilegedStaff && !hasGrantedPermissions) {
     return (
       <PermissionsCheckScreen
         user={user}
@@ -1212,6 +1234,32 @@ export function AppContent() {
         case 'profile': return <ProfileSettings user={user} onLogout={handleLogout} />;
         default: return <AdminDashboard user={user} />;
       }
+    } else if (isExecutiveAssistant) {
+      switch (currentPage) {
+        case 'admin-dashboard': return (
+          <AdminDashboard 
+            user={user} 
+            onNavigate={(page, subTab) => { 
+              setCurrentPage(page); 
+              if (subTab) setSelectedReportSubTab(subTab); 
+            }} 
+          />
+        );
+        case 'admin-directory': return <AdminFirmDirectory user={user} />;
+        case 'admin-reports': return (
+          <AdminReports 
+            user={user} 
+            initialSubTab={selectedReportSubTab} 
+          />
+        );
+        case 'profile': return <ProfileSettings user={user} onLogout={handleLogout} />;
+        default: return (
+          <AdminReports 
+            user={user} 
+            initialSubTab={selectedReportSubTab || 'firm_view'} 
+          />
+        );
+      }
     } else {
       switch (currentPage) {
         case 'dashboard': return <ShiftDashboard user={user} />;
@@ -1228,10 +1276,49 @@ export function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative pb-20">
       
+      {/* In-App Live Mobile Push Toasts */}
+      {pushToasts.length > 0 && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-full max-w-sm px-4 space-y-2 pointer-events-none">
+          {pushToasts.map((toast) => (
+            <div
+              key={toast.id}
+              onClick={() => {
+                setIsNotificationCenterOpen(true);
+                setPushToasts((prev) => prev.filter((t) => t.id !== toast.id));
+              }}
+              className={`pointer-events-auto p-3.5 rounded-2xl shadow-2xl border backdrop-blur-md flex items-start gap-3 transition-all transform animate-in slide-in-from-top duration-300 cursor-pointer ${
+                toast.type === 'broadcast' || toast.type === 'alert'
+                  ? 'bg-slate-900/95 border-amber-500/60 text-amber-100 shadow-amber-500/10'
+                  : toast.type === 'success'
+                  ? 'bg-slate-900/95 border-emerald-500/60 text-emerald-100 shadow-emerald-500/10'
+                  : 'bg-slate-900/95 border-blue-500/60 text-blue-100 shadow-blue-500/10'
+              }`}
+            >
+              <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0 mt-0.5">
+                <Bell size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-white truncate">{toast.title}</h4>
+                  <span className="text-[9px] text-slate-400">{toast.timestamp}</span>
+                </div>
+                <p className="text-[11px] text-slate-300 mt-0.5 leading-snug">{toast.message}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* 1. Initial Launch / Install Permission Prompt */}
       <InitialInstallPermissionsModal />
 
-      {/* 2. Fallback Lock Screen Overlay if permissions are revoked mid-shift */}
+      {/* 2. Diagnostics & Device Permissions Hub Modal */}
+      <DevicePermissionsHubModal
+        isOpen={isPermissionsHubOpen}
+        onClose={() => setIsPermissionsHubOpen(false)}
+      />
+
+      {/* 3. Fallback Lock Screen Overlay if permissions are revoked mid-shift */}
       {!isAdmin && revokedPermissionReason && !isBypassed && (
         <RevokedPermissionsOverlay
           revokedReason={revokedPermissionReason}
@@ -1249,18 +1336,36 @@ export function AppContent() {
                 SMM - FMA
               </h1>
               <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                isAdmin ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                isAdmin 
+                  ? 'bg-purple-100 text-purple-800' 
+                  : isExecutiveAssistant 
+                  ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                  : 'bg-blue-100 text-blue-800'
               }`}>
-                {isAdmin ? 'Admin' : 'Field Exec'}
+                {isAdmin ? 'Admin' : isExecutiveAssistant ? 'Exec Assistant (View Only)' : 'Field Exec'}
               </span>
             </div>
             <p className="text-xs text-gray-500 font-medium mt-1 truncate max-w-[200px] sm:max-w-xs">
-              {isAdmin ? 'Sundaram Mahadeo Group • Admin' : `${user.fullName} • Shift Active`}
+              {isAdmin 
+                ? 'Sundaram Mahadeo Group • Admin Controller' 
+                : isExecutiveAssistant 
+                ? `${user.fullName} • Executive Assistant (Reports & Directory View)` 
+                : `${user.fullName} • Shift Active`}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Device & Sensor Diagnostics Button */}
+          <button
+            onClick={() => setIsPermissionsHubOpen(true)}
+            title="Device Sensors & Permissions"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-xl text-xs font-bold transition-all border border-slate-200"
+          >
+            <Smartphone size={15} />
+            <span className="hidden sm:inline">Sensors</span>
+          </button>
+
           {/* Notification Bell Button */}
           <button
             onClick={() => setIsNotificationCenterOpen(true)}
@@ -1305,6 +1410,14 @@ export function AppContent() {
           <button onClick={() => setCurrentPage('admin-ums')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-ums' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">UMS</span></button>
           <button onClick={() => setCurrentPage('admin-config')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-config' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Settings2 size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Config</span></button>
           <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
+        </nav>
+      ) : isExecutiveAssistant ? (
+        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-amber-200 grid grid-cols-5 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+          <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
+          <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('firm_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'firm_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Firm View</span></button>
+          <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('exec_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'exec_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Exec View</span></button>
+          <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><BarChart size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
+          <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
         </nav>
       ) : (
         <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">

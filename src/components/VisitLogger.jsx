@@ -1,13 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   CheckCircle2, PlusCircle, Camera, MapPin, Store, IndianRupee, 
   Clock, FileText, AlertCircle, RefreshCw, Layers, Check, ShoppingBag, 
   CreditCard, Edit3, Trash2, X, Calendar, Calculator, ShieldAlert, Sparkles,
   Truck, ArrowRight, UserCheck, MessageSquare, HelpCircle, Navigation,
-  Crosshair, ShieldCheck, AlertTriangle, ExternalLink, Target
+  Crosshair, ShieldCheck, AlertTriangle, ExternalLink, Target, Search,
+  History, Building2, Package, Tag, ArrowUpRight, ArrowDownLeft, Lock
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
+import { sendMobilePushNotification } from '../lib/notificationEngine';
+import { DEFAULT_APP_CONFIG } from '../lib/supabaseDataService';
 
 // Haversine distance calculator in meters between two GPS coordinates
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -34,19 +37,26 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
   return Math.round(R * c);
 }
 
-// Product incentive rate mapping with default pricing per unit
-const PRODUCT_INCENTIVE_RATES = {
-  'Cement (UltraTech / ACC)': { unit: 'Bags', rate: 10, defaultPricePerUnit: 336 },
-  'TMT Steel (Tata Tiscon / Jindal)': { unit: 'MT', rate: 50, defaultPricePerUnit: 62000 },
-  'Pipes & Fittings': { unit: 'Pcs', rate: 10, defaultPricePerUnit: 1200 },
-  'Sand & Aggregates': { unit: 'CFT', rate: 2, defaultPricePerUnit: 48 },
-  'Bricks & Blocks': { unit: 'Pcs', rate: 1, defaultPricePerUnit: 70 },
-  'Structural Steel': { unit: 'MT', rate: 45, defaultPricePerUnit: 58000 },
-  'Paints & Finishes': { unit: 'Pcs', rate: 15, defaultPricePerUnit: 2400 }
-};
+// Delivery Types as requested
+const DELIVERY_TYPES = [
+  'FOR Factory',
+  'From Warehouse',
+  'Ex Factory',
+  'Direct Pickup'
+];
 
-export default function VisitLogger({ user }) {
-  // 1. LOCAL STORAGE & INITIAL STATE FALLBACK
+export default function VisitLogger({ user, onNavigateToShift }) {
+  // Check active shift state for shift gate
+  const [activeShift, setActiveShift] = useState(() => {
+    try {
+      const saved = localStorage.getItem('activeShiftData');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  // Local storage visits & firms
   const [visits, setVisits] = useState(() => {
     try {
       const saved = localStorage.getItem('user_visits');
@@ -65,19 +75,46 @@ export default function VisitLogger({ user }) {
     }
   });
 
+  // Configured products loaded from Admin Config
+  const [configuredProducts, setConfiguredProducts] = useState(() => {
+    try {
+      const savedCfg = localStorage.getItem('app_config');
+      if (savedCfg) {
+        const parsed = JSON.parse(savedCfg);
+        if (Array.isArray(parsed.incentives) && parsed.incentives.length > 0) {
+          return parsed.incentives;
+        }
+      }
+      return DEFAULT_APP_CONFIG.incentives || [];
+    } catch (e) {
+      return DEFAULT_APP_CONFIG.incentives || [];
+    }
+  });
+
+  // Autocomplete search & suggestions state
+  const [clientSearchQuery, setClientSearchQuery] = useState('');
+  const [isClientSuggestionsOpen, setIsClientSuggestionsOpen] = useState(false);
+  const searchContainerRef = useRef(null);
+
   // Base Form State
   const [editingVisitId, setEditingVisitId] = useState(null);
   const [clientName, setClientName] = useState('');
   const [visitPurpose, setVisitPurpose] = useState('Sales'); // 'Sales' | 'Payment Collection' | 'Follow-up' | 'Support' | 'Onboarding'
 
-  // CONDITIONAL SECTION 1: Sales Inputs
-  const [productName, setProductName] = useState('Cement (UltraTech / ACC)');
-  const [customProductName, setCustomProductName] = useState('');
-  const [quantity, setQuantity] = useState('');
-  const [unit, setUnit] = useState('Bags');
-  const [deliveryType, setDeliveryType] = useState('Site Delivery / Dispatched');
-  const [billingAmount, setBillingAmount] = useState('');
-  const [autoCalcBilling, setAutoCalcBilling] = useState(true);
+  // CONDITIONAL SECTION 1: Multi-Product Sales Items
+  // Structure: [{ id, productName, unit, quantity, billingAmount, unitCost, incentiveRate }]
+  const [salesProducts, setSalesProducts] = useState([
+    {
+      id: 'item_1',
+      productName: configuredProducts[0]?.name || 'Standard Product',
+      unit: configuredProducts[0]?.unit || 'Bags',
+      quantity: '',
+      billingAmount: '',
+      unitCost: '0.00',
+      incentiveRate: configuredProducts[0]?.rate || 10
+    }
+  ]);
+  const [deliveryType, setDeliveryType] = useState('FOR Factory');
 
   // CONDITIONAL SECTION 2: Payment Collection Inputs
   const [paymentMethod, setPaymentMethod] = useState('UPI'); // NEFT, UPI, Bank Transfer, Cheque, Cash Deposit
@@ -102,40 +139,67 @@ export default function VisitLogger({ user }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  // Proximity & Geofence cross-check computations
-  const matchedFirm = useMemo(() => {
-    if (!clientName.trim()) return null;
-    const q = clientName.trim().toLowerCase();
-    return firmsList.find(f => (f.name || '').trim().toLowerCase() === q) ||
-           firmsList.find(f => (f.name || '').toLowerCase().includes(q));
-  }, [clientName, firmsList]);
-
-  const distanceToMatchedFirm = useMemo(() => {
-    if (!matchedFirm?.location?.lat || !matchedFirm?.location?.lng || !gpsLocation?.lat || !gpsLocation?.lng) {
-      return null;
+  // Close suggestions dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setIsClientSuggestionsOpen(false);
+      }
     }
-    return calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, matchedFirm.location.lat, matchedFirm.location.lng);
-  }, [matchedFirm, gpsLocation]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
-  const nearbyFirms = useMemo(() => {
-    if (!gpsLocation?.lat || !gpsLocation?.lng || firmsList.length === 0) return [];
-    return firmsList
-      .map(f => {
-        if (!f.location?.lat || !f.location?.lng) return null;
-        const d = calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, f.location.lat, f.location.lng);
-        return d !== null ? { ...f, distanceMeters: d } : null;
-      })
-      .filter(f => f && f.distanceMeters <= 500)
-      .sort((a, b) => a.distanceMeters - b.distanceMeters);
-  }, [firmsList, gpsLocation]);
-
-  const closestNearbyFirm = nearbyFirms.length > 0 ? nearbyFirms[0] : null;
-
-  // Fetch initial visits, firms, and GPS on mount
+  // Fetch initial visits, firms, config, and GPS on mount
   useEffect(() => {
     fetchVisitsAndFirms();
+    fetchAdminConfig();
+    checkShiftStatus();
     captureCurrentGps();
   }, []);
+
+  const checkShiftStatus = async () => {
+    try {
+      const res = await api.get('/shifts/current');
+      if (res.data?.shift && res.data.shift.status === 'ACTIVE') {
+        setActiveShift(res.data.shift);
+        localStorage.setItem('activeShiftData', JSON.stringify(res.data.shift));
+      } else if (!res.data?.shift) {
+        // Double check local storage
+        const saved = localStorage.getItem('activeShiftData');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.status === 'ACTIVE') setActiveShift(parsed);
+          else setActiveShift(null);
+        } else {
+          setActiveShift(null);
+        }
+      }
+    } catch (e) {
+      const saved = localStorage.getItem('activeShiftData');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.status === 'ACTIVE') setActiveShift(parsed);
+          else setActiveShift(null);
+        } catch (err) {
+          setActiveShift(null);
+        }
+      }
+    }
+  };
+
+  const fetchAdminConfig = async () => {
+    try {
+      const res = await api.get('/admin/config');
+      if (res.data?.incentives && Array.isArray(res.data.incentives) && res.data.incentives.length > 0) {
+        setConfiguredProducts(res.data.incentives);
+        localStorage.setItem('app_config', JSON.stringify(res.data));
+      }
+    } catch (e) {
+      console.warn('Using cached config products for sales form.');
+    }
+  };
 
   const captureCurrentGps = async () => {
     setIsGpsLocating(true);
@@ -174,35 +238,181 @@ export default function VisitLogger({ user }) {
     }
   };
 
-  // Product change handler
-  const handleProductChange = (prod) => {
-    setProductName(prod);
-    const prodConfig = PRODUCT_INCENTIVE_RATES[prod];
-    if (prodConfig) {
-      setUnit(prodConfig.unit);
-      if (quantity && autoCalcBilling) {
-        const estAmount = parseFloat(quantity) * prodConfig.defaultPricePerUnit;
-        setBillingAmount(estAmount ? estAmount.toString() : '');
+  // Matched Firm identification based on exact or close clientName
+  const matchedFirm = useMemo(() => {
+    if (!clientName.trim()) return null;
+    const q = clientName.trim().toLowerCase();
+    return firmsList.find(f => (f.name || '').trim().toLowerCase() === q) ||
+           firmsList.find(f => (f.name || '').toLowerCase().includes(q));
+  }, [clientName, firmsList]);
+
+  // Similar firms list for Autocomplete dropdown when typing in client name
+  const suggestedFirms = useMemo(() => {
+    const query = (clientSearchQuery || clientName || '').trim().toLowerCase();
+    if (!query) return firmsList.slice(0, 8); // show top onboarded firms when empty/focused
+    return firmsList.filter(f => {
+      const name = (f.name || '').toLowerCase();
+      const contact = (f.contactPerson || '').toLowerCase();
+      const phone = (f.phone || '').toLowerCase();
+      const addr = (f.address || '').toLowerCase();
+      const gstin = (f.gstin || '').toLowerCase();
+      return name.includes(query) || contact.includes(query) || phone.includes(query) || addr.includes(query) || gstin.includes(query);
+    }).slice(0, 12);
+  }, [clientSearchQuery, clientName, firmsList]);
+
+  // Selected Firm Ledger Stats & Past Order History for Payment Collection Form
+  const selectedFirmHistory = useMemo(() => {
+    if (!matchedFirm && !clientName.trim()) return null;
+    const searchTarget = (matchedFirm?.name || clientName).trim().toLowerCase();
+    
+    // Filter all visits matching this firm name
+    const firmVisits = visits.filter(v => {
+      const fName = (v.clientName || v.firmName || '').trim().toLowerCase();
+      return fName === searchTarget || fName.includes(searchTarget);
+    });
+
+    const totalBilled = firmVisits.reduce((sum, v) => sum + (parseFloat(v.orderValue || v.billingAmount) || 0), 0);
+    const totalCollected = firmVisits.reduce((sum, v) => sum + (parseFloat(v.collectedAmount || v.transactionAmount) || 0), 0);
+    const netDues = Math.max(0, totalBilled - totalCollected);
+
+    return {
+      firm: matchedFirm,
+      firmName: matchedFirm?.name || clientName.trim(),
+      gstin: matchedFirm?.gstin || 'URP-Registered',
+      phone: matchedFirm?.phone || 'N/A',
+      address: matchedFirm?.address || 'Market Location',
+      totalBilled,
+      totalCollected,
+      netDues,
+      ordersCount: firmVisits.length,
+      pastOrders: firmVisits.sort((a, b) => new Date(b.timestamp || b.paymentDate || 0) - new Date(a.timestamp || a.paymentDate || 0))
+    };
+  }, [matchedFirm, clientName, visits]);
+
+  const distanceToMatchedFirm = useMemo(() => {
+    if (!matchedFirm?.location?.lat || !matchedFirm?.location?.lng || !gpsLocation?.lat || !gpsLocation?.lng) {
+      return null;
+    }
+    return calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, matchedFirm.location.lat, matchedFirm.location.lng);
+  }, [matchedFirm, gpsLocation]);
+
+  const nearbyFirms = useMemo(() => {
+    if (!gpsLocation?.lat || !gpsLocation?.lng || firmsList.length === 0) return [];
+    return firmsList
+      .map(f => {
+        if (!f.location?.lat || !f.location?.lng) return null;
+        const d = calculateDistanceMeters(gpsLocation.lat, gpsLocation.lng, f.location.lat, f.location.lng);
+        return d !== null ? { ...f, distanceMeters: d } : null;
+      })
+      .filter(f => f && f.distanceMeters <= 500)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
+  }, [firmsList, gpsLocation]);
+
+  const closestNearbyFirm = nearbyFirms.length > 0 ? nearbyFirms[0] : null;
+
+  // Handle choosing a firm from the autocomplete suggestions
+  const handleSelectFirm = (firm) => {
+    setClientName(firm.name);
+    setClientSearchQuery('');
+    setIsClientSuggestionsOpen(false);
+
+    // If in payment collection mode and firm has dues, suggest auto-filling
+    if (visitPurpose === 'Payment Collection') {
+      const searchTarget = firm.name.trim().toLowerCase();
+      const firmVisits = visits.filter(v => (v.clientName || v.firmName || '').trim().toLowerCase() === searchTarget);
+      const totalBilled = firmVisits.reduce((sum, v) => sum + (parseFloat(v.orderValue || v.billingAmount) || 0), 0);
+      const totalCollected = firmVisits.reduce((sum, v) => sum + (parseFloat(v.collectedAmount || v.transactionAmount) || 0), 0);
+      const dues = Math.max(0, totalBilled - totalCollected);
+      if (dues > 0 && !transactionAmount) {
+        setTransactionAmount(dues.toString());
       }
     }
   };
 
-  // Quantity change handler with automatic billing calculation
-  const handleQuantityChange = (val) => {
-    setQuantity(val);
-    if (autoCalcBilling && val) {
-      const prodConfig = PRODUCT_INCENTIVE_RATES[productName];
-      const rate = prodConfig ? prodConfig.defaultPricePerUnit : (unit === 'Bags' ? 336 : 1000);
-      const estAmount = parseFloat(val) * rate;
-      setBillingAmount(estAmount ? estAmount.toString() : '');
-    }
+  // MULTI-PRODUCT SALES HANDLERS
+  const handleAddSalesProduct = () => {
+    const firstConfig = configuredProducts[0] || { name: 'Standard Item', unit: 'Bags', rate: 10 };
+    setSalesProducts(prev => [
+      ...prev,
+      {
+        id: 'item_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        productName: firstConfig.name,
+        unit: firstConfig.unit || 'Bags',
+        quantity: '',
+        billingAmount: '',
+        unitCost: '0.00',
+        incentiveRate: firstConfig.rate || 10
+      }
+    ]);
   };
 
-  // Real-time incentive calculation for Sales
-  const activeProductKey = productName === 'Other' ? customProductName : productName;
-  const currentRate = PRODUCT_INCENTIVE_RATES[productName]?.rate || (unit === 'MT' ? 50 : unit === 'Bags' ? 10 : 5);
-  const numQty = parseFloat(quantity) || 0;
-  const calculatedIncentive = visitPurpose === 'Sales' ? (numQty * currentRate) : 0;
+  const handleRemoveSalesProduct = (id) => {
+    if (salesProducts.length <= 1) {
+      // Don't remove if only 1 item, just reset it
+      setSalesProducts([{
+        id: 'item_1',
+        productName: configuredProducts[0]?.name || 'Standard Item',
+        unit: configuredProducts[0]?.unit || 'Bags',
+        quantity: '',
+        billingAmount: '',
+        unitCost: '0.00',
+        incentiveRate: configuredProducts[0]?.rate || 10
+      }]);
+      return;
+    }
+    setSalesProducts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleUpdateSalesProduct = (id, field, value) => {
+    setSalesProducts(prev => prev.map(item => {
+      if (item.id !== id) return item;
+      const updated = { ...item, [field]: value };
+
+      if (field === 'productName') {
+        const found = configuredProducts.find(cp => cp.name === value);
+        if (found) {
+          updated.unit = found.unit || 'Bags';
+          updated.incentiveRate = found.rate || 10;
+        }
+      }
+
+      // Re-calculate unitCost when quantity or billingAmount changes
+      const qty = parseFloat(field === 'quantity' ? value : updated.quantity) || 0;
+      const billing = parseFloat(field === 'billingAmount' ? value : updated.billingAmount) || 0;
+
+      if (qty > 0 && billing > 0) {
+        updated.unitCost = (billing / qty).toFixed(2);
+      } else {
+        updated.unitCost = '0.00';
+      }
+
+      return updated;
+    }));
+  };
+
+  // Multi-Product Aggregate Calculations
+  const salesTotals = useMemo(() => {
+    let totalBilling = 0;
+    let totalIncentive = 0;
+    let totalQty = 0;
+
+    salesProducts.forEach(item => {
+      const q = parseFloat(item.quantity) || 0;
+      const b = parseFloat(item.billingAmount) || 0;
+      const rate = parseFloat(item.incentiveRate) || 0;
+
+      totalBilling += b;
+      totalQty += q;
+      totalIncentive += (q * rate);
+    });
+
+    return {
+      totalBilling,
+      totalIncentive,
+      totalQty,
+      itemsCount: salesProducts.length
+    };
+  }, [salesProducts]);
 
   // Handle Photo Capture
   const handlePhotoCapture = (e) => {
@@ -240,19 +450,33 @@ export default function VisitLogger({ user }) {
     else if (p.includes('Onboard')) setVisitPurpose('Onboarding');
     else setVisitPurpose(p);
 
-    // Sales fields
-    const existingProd = visit.productName || visit.product || 'Cement (UltraTech / ACC)';
-    if (PRODUCT_INCENTIVE_RATES[existingProd]) {
-      setProductName(existingProd);
+    // Sales fields (support multi-product or legacy single-product)
+    if (Array.isArray(visit.products) && visit.products.length > 0) {
+      setSalesProducts(visit.products);
     } else {
-      setProductName('Other');
-      setCustomProductName(existingProd);
+      const existingProd = visit.productName || visit.product || configuredProducts[0]?.name || 'Standard Product';
+      const existingQty = visit.quantity || '';
+      const existingBilling = visit.billingAmount || visit.orderValue || '';
+      const existingUnit = visit.unit || 'Bags';
+      const foundCfg = configuredProducts.find(cp => cp.name === existingProd);
+      const unitCost = (parseFloat(existingQty) > 0 && parseFloat(existingBilling) > 0)
+        ? (parseFloat(existingBilling) / parseFloat(existingQty)).toFixed(2)
+        : '0.00';
+
+      setSalesProducts([
+        {
+          id: 'item_edit_1',
+          productName: existingProd,
+          unit: existingUnit,
+          quantity: existingQty ? existingQty.toString() : '',
+          billingAmount: existingBilling ? existingBilling.toString() : '',
+          unitCost,
+          incentiveRate: foundCfg?.rate || 10
+        }
+      ]);
     }
-    setQuantity(visit.quantity ? visit.quantity.toString() : '');
-    setUnit(visit.unit || 'Bags');
-    setDeliveryType(visit.deliveryType || 'Site Delivery / Dispatched');
-    setBillingAmount(visit.billingAmount ? visit.billingAmount.toString() : (visit.orderValue ? visit.orderValue.toString() : ''));
-    setAutoCalcBilling(false);
+    
+    setDeliveryType(visit.deliveryType || 'FOR Factory');
 
     // Payment fields
     setPaymentMethod(visit.paymentMethod || visit.paymentMode || 'UPI');
@@ -289,13 +513,9 @@ export default function VisitLogger({ user }) {
         setDiscussionTopic('');
         setNextFollowUpDate('');
       } else if (newPurpose === 'Payment Collection') {
-        setQuantity('');
-        setBillingAmount('');
         setDiscussionTopic('');
         setNextFollowUpDate('');
       } else {
-        setQuantity('');
-        setBillingAmount('');
         setTransactionAmount('');
         setTxnId('');
       }
@@ -304,14 +524,21 @@ export default function VisitLogger({ user }) {
 
   const resetFormFields = () => {
     setClientName('');
+    setClientSearchQuery('');
     setVisitPurpose('Sales');
-    setProductName('Cement (UltraTech / ACC)');
-    setCustomProductName('');
-    setQuantity('');
-    setUnit('Bags');
-    setDeliveryType('Site Delivery / Dispatched');
-    setBillingAmount('');
-    setAutoCalcBilling(true);
+    const firstCfg = configuredProducts[0] || { name: 'Standard Product', unit: 'Bags', rate: 10 };
+    setSalesProducts([
+      {
+        id: 'item_1',
+        productName: firstCfg.name,
+        unit: firstCfg.unit || 'Bags',
+        quantity: '',
+        billingAmount: '',
+        unitCost: '0.00',
+        incentiveRate: firstCfg.rate || 10
+      }
+    ]);
+    setDeliveryType('FOR Factory');
     setPaymentMethod('UPI');
     setTransactionAmount('');
     setTransactionDate(new Date().toISOString().split('T')[0]);
@@ -329,17 +556,30 @@ export default function VisitLogger({ user }) {
     setErrorMsg('');
     setSuccessMsg('');
 
+    // HARDCODED SHIFT CHECK: Executives must be on active duty to log visits
+    if (user?.role !== 'ADMIN' && (!activeShift || activeShift.status !== 'ACTIVE')) {
+      setErrorMsg('Policy Violation: You must start your shift in the Shift Dashboard before logging visits.');
+      return;
+    }
+
     if (!clientName.trim()) {
       setErrorMsg('Please specify the Client / Firm Name.');
       return;
+    }
+
+    // Validate Sales Products if in Sales mode
+    if (visitPurpose === 'Sales') {
+      const invalidItem = salesProducts.find(p => !p.quantity || parseFloat(p.quantity) <= 0 || !p.billingAmount || parseFloat(p.billingAmount) <= 0);
+      if (invalidItem) {
+        setErrorMsg('Please enter valid Quantity and Billing Amount for all added products.');
+        return;
+      }
     }
 
     setLoading(true);
 
     const nowISO = new Date().toISOString();
     const todayStr = nowISO.split('T')[0];
-    const finalProdName = productName === 'Other' ? (customProductName.trim() || 'Custom Product') : productName;
-    const parsedBilling = parseFloat(billingAmount) || 0;
     const parsedTxnAmount = parseFloat(transactionAmount) || 0;
 
     // Compute authoritative Geofence Cross-Check status
@@ -356,7 +596,7 @@ export default function VisitLogger({ user }) {
       }
     }
 
-    // Construct conditional specific payload based on visitPurpose
+    // Construct specific payload based on visitPurpose
     let payload = {
       clientName: clientName.trim(),
       firmName: clientName.trim(),
@@ -374,16 +614,21 @@ export default function VisitLogger({ user }) {
     };
 
     if (visitPurpose === 'Sales') {
+      // Primary summary product descriptor
+      const primaryProduct = salesProducts[0]?.productName || 'Multi-Product Order';
+      const primaryUnit = salesProducts[0]?.unit || 'Units';
+
       payload = {
         ...payload,
-        productName: finalProdName,
-        product: finalProdName,
-        quantity: numQty,
-        unit,
+        products: salesProducts,
+        productName: salesProducts.length > 1 ? `${primaryProduct} + ${salesProducts.length - 1} more` : primaryProduct,
+        product: salesProducts.length > 1 ? `${primaryProduct} + ${salesProducts.length - 1} more` : primaryProduct,
+        quantity: salesTotals.totalQty,
+        unit: primaryUnit,
         deliveryType,
-        billingAmount: parsedBilling,
-        orderValue: parsedBilling,
-        bagIncentive: calculatedIncentive,
+        billingAmount: salesTotals.totalBilling,
+        orderValue: salesTotals.totalBilling,
+        bagIncentive: salesTotals.totalIncentive,
         collectedAmount: 0,
         paymentMode: 'None'
       };
@@ -396,8 +641,8 @@ export default function VisitLogger({ user }) {
         collectedAmount: parsedTxnAmount,
         transactionDate: transactionDate || todayStr,
         paymentDate: transactionDate || todayStr,
-        transactionId: transactionId.trim(),
-        txnId: transactionId.trim(),
+        transactionId: transactionId.trim() || `TXN-${Date.now().toString().slice(-6)}`,
+        txnId: transactionId.trim() || `TXN-${Date.now().toString().slice(-6)}`,
         orderValue: 0,
         quantity: 0,
         bagIncentive: 0
@@ -457,9 +702,9 @@ export default function VisitLogger({ user }) {
       try {
         const activeShiftStr = localStorage.getItem('activeShiftData');
         if (activeShiftStr) {
-          const activeShift = JSON.parse(activeShiftStr);
-          activeShift.visitsCount = (activeShift.visitsCount || 0) + 1;
-          localStorage.setItem('activeShiftData', JSON.stringify(activeShift));
+          const shiftObj = JSON.parse(activeShiftStr);
+          shiftObj.visitsCount = (shiftObj.visitsCount || 0) + 1;
+          localStorage.setItem('activeShiftData', JSON.stringify(shiftObj));
         }
       } catch (e) {}
 
@@ -471,8 +716,18 @@ export default function VisitLogger({ user }) {
           localStorage.setItem('user_visits', JSON.stringify(serverUpdated));
         }
         setSuccessMsg(`Visit for "${clientName.trim()}" (${visitPurpose}) logged successfully!`);
+        sendMobilePushNotification(
+          '📍 Visit Recorded',
+          `Visit for ${clientName.trim()} (${visitPurpose}) logged at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+          { type: 'success' }
+        );
       } catch (err) {
         setSuccessMsg(`Visit for "${clientName.trim()}" (${visitPurpose}) saved locally (Offline Ready).`);
+        sendMobilePushNotification(
+          '💾 Visit Saved (Offline)',
+          `Visit for ${clientName.trim()} saved locally. Will sync automatically.`,
+          { type: 'info' }
+        );
       }
     }
 
@@ -518,6 +773,57 @@ export default function VisitLogger({ user }) {
     return vDate === todayDateStr || !v.timestamp;
   });
 
+  // =========================================================================
+  // HARDCODED SHIFT GATE FOR FIELD EXECUTIVES
+  // =========================================================================
+  const isExecutiveOffDuty = user?.role !== 'ADMIN' && (!activeShift || activeShift.status !== 'ACTIVE');
+
+  if (isExecutiveOffDuty) {
+    return (
+      <div className="max-w-2xl mx-auto py-10 px-4 space-y-6">
+        <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 p-8 rounded-3xl text-white text-center shadow-xl border border-slate-700/60 space-y-5">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-400 mx-auto flex items-center justify-center shadow-inner">
+            <Lock size={32} />
+          </div>
+          
+          <div className="space-y-2">
+            <span className="text-[11px] font-extrabold uppercase tracking-widest bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full border border-amber-500/30">
+              Shift Required • Off-Duty
+            </span>
+            <h2 className="text-2xl font-black text-white">Active Shift Required to Log Visits</h2>
+            <p className="text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
+              Field Executives must start their daily shift and submit an opening odometer reading before logging visits, sales orders, or collecting payments.
+            </p>
+          </div>
+
+          <div className="p-4 bg-white/5 rounded-2xl border border-white/10 text-xs text-slate-300 space-y-2 text-left">
+            <div className="flex items-center gap-2 font-bold text-amber-300">
+              <ShieldAlert size={16} /> Compliance & Travel Reimbursement Notice:
+            </div>
+            <p>
+              Starting your shift activates high-precision GPS geofencing, calculates your KM travel reimbursement at ₹5/KM, and unlocks client logging.
+            </p>
+          </div>
+
+          <button
+            onClick={() => {
+              if (onNavigateToShift) {
+                onNavigateToShift();
+              } else {
+                window.location.hash = '#dashboard';
+                window.dispatchEvent(new CustomEvent('app:navigate', { detail: 'dashboard' }));
+              }
+            }}
+            className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-black text-sm rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 mx-auto active:scale-95"
+          >
+            <Clock size={18} />
+            <span>Go to Shift Dashboard to Start Shift</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {/* NOTIFICATIONS */}
@@ -546,12 +852,12 @@ export default function VisitLogger({ user }) {
             </div>
             <div>
               <h2 className="text-lg sm:text-xl font-black text-slate-900">
-                {editingVisitId ? 'Edit Today\'s Visit Record' : 'Log New Client / Firm Visit'}
+                {editingVisitId ? 'Edit Today\'s Visit Record' : 'Log Client / Firm Visit'}
               </h2>
               <p className="text-xs text-slate-500">
                 {editingVisitId 
                   ? 'Update conditional fields, pricing, and receipts for this record' 
-                  : 'Record client visits with dynamic purpose-based forms and instant local persistence'}
+                  : 'Record client visits, multi-product sales, and payment collections with instant ledger sync'}
               </p>
             </div>
           </div>
@@ -596,7 +902,7 @@ export default function VisitLogger({ user }) {
 
               <button
                 type="button"
-                onClick={() => setClientName(closestNearbyFirm.name)}
+                onClick={() => handleSelectFirm(closestNearbyFirm)}
                 className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
               >
                 <Check size={13} />
@@ -605,28 +911,71 @@ export default function VisitLogger({ user }) {
             </div>
           )}
 
-          {/* Top Row: Client Name & Visit Purpose Selection */}
+          {/* Top Row: Client Name (WITH INTERACTIVE AUTOCOMPLETE FOR ALL FORMS) & Visit Purpose Selection */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                Client / Firm Name <span className="text-rose-500">*</span>
-              </label>
+            <div className="md:col-span-2" ref={searchContainerRef}>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Client / Firm Name <span className="text-rose-500">*</span>
+                </label>
+                {matchedFirm && (
+                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <ShieldCheck size={12} /> Onboarded Dealer Verified
+                  </span>
+                )}
+              </div>
+
               <div className="relative">
                 <input
                   type="text"
-                  list="firms-suggestions-list"
-                  placeholder="e.g. SMST - Sundaram Mahadeo Steels / Gupta Hardware"
+                  placeholder="Type firm name or dealer..."
                   value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  className="w-full px-4 py-3 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  onFocus={() => setIsClientSuggestionsOpen(true)}
+                  onChange={(e) => {
+                    setClientName(e.target.value);
+                    setClientSearchQuery(e.target.value);
+                    setIsClientSuggestionsOpen(true);
+                  }}
+                  className="w-full px-4 py-3 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white pr-10"
                   required
                 />
-                <datalist id="firms-suggestions-list">
-                  {firmsList.map((f) => (
-                    <option key={f.id} value={f.name} />
-                  ))}
-                </datalist>
-                <Store size={18} className="absolute right-4 top-3.5 text-slate-400 pointer-events-none" />
+                <Store size={18} className="absolute right-3.5 top-3.5 text-slate-400 pointer-events-none" />
+
+                {/* INTERACTIVE CLIENT AUTOCOMPLETE DROPDOWN */}
+                {isClientSuggestionsOpen && suggestedFirms.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 max-h-72 overflow-y-auto divide-y divide-slate-100 animate-in fade-in slide-in-from-top-1">
+                    <div className="p-2 bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between sticky top-0 border-b border-slate-200">
+                      <span>Matching Onboarded Firms ({suggestedFirms.length})</span>
+                      <span>Click to auto-populate</span>
+                    </div>
+                    {suggestedFirms.map((firm) => (
+                      <button
+                        key={firm.id}
+                        type="button"
+                        onClick={() => handleSelectFirm(firm)}
+                        className="w-full text-left p-3 hover:bg-blue-50/80 transition-colors flex items-start justify-between gap-3 group"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="text-xs font-black text-slate-900 group-hover:text-blue-700 flex items-center gap-1.5">
+                            <Store size={14} className="text-slate-400 group-hover:text-blue-600" />
+                            <span>{firm.name}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2">
+                            <span>{firm.contactPerson || 'Proprietor'}</span>
+                            {firm.phone && <span>• {firm.phone}</span>}
+                            {firm.address && <span className="truncate max-w-[200px]">• {firm.address}</span>}
+                          </div>
+                        </div>
+
+                        {firm.gstin && (
+                          <span className="text-[10px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded shrink-0">
+                            {firm.gstin}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* LIVE GEOLOCATION CROSS-CHECK STATUS */}
@@ -686,12 +1035,6 @@ export default function VisitLogger({ user }) {
                   )}
                 </div>
               )}
-
-              {firmsList.length > 0 && !clientName && (
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Select from {firmsList.length} onboarded group entities/dealers or enter new shop name.
-                </p>
-              )}
             </div>
 
             <div>
@@ -703,8 +1046,8 @@ export default function VisitLogger({ user }) {
                 onChange={(e) => handlePurposeChange(e.target.value)}
                 className="w-full px-4 py-3 text-sm font-bold border-2 border-blue-600/30 rounded-xl bg-blue-50/40 text-blue-900 focus:ring-2 focus:ring-blue-500"
               >
-                <option value="Sales">Sales (Order & Incentive)</option>
-                <option value="Payment Collection">Payment Collection</option>
+                <option value="Sales">Sales (Multi-Product Order)</option>
+                <option value="Payment Collection">Payment Collection & Dues</option>
                 <option value="Follow-up">Follow-up Meeting</option>
                 <option value="Support">Support & Feedback</option>
                 <option value="Onboarding">New Dealer Onboarding</option>
@@ -713,164 +1056,186 @@ export default function VisitLogger({ user }) {
           </div>
 
           {/* ========================================================================= */}
-          {/* CONDITIONAL BLOCK 1: SALES & PRODUCT ORDERING                             */}
+          {/* CONDITIONAL BLOCK 1: SALES & MULTI-PRODUCT ORDERING (CONFIG PRODUCTS ONLY) */}
           {/* ========================================================================= */}
           {visitPurpose === 'Sales' && (
-            <div className="bg-gradient-to-br from-blue-50/70 to-slate-50 p-5 rounded-2xl border border-blue-200/90 space-y-4 animate-in fade-in duration-200">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-blue-200/80">
+            <div className="bg-gradient-to-br from-blue-50/70 to-slate-50 p-5 rounded-2xl border border-blue-200/90 space-y-5 animate-in fade-in duration-200">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-blue-200/80">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-blue-600 text-white rounded-lg">
                     <ShoppingBag size={16} />
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Sales Order & Billing Information
+                      Sales Order & Multi-Product Billing
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Product rates, quantity, delivery dispatch, and auto incentive math
+                      Add multiple products, auto-derive per-unit cost, and aggregate total billing
                     </p>
                   </div>
                 </div>
-                <div className="text-[11px] bg-blue-100/80 text-blue-800 px-2.5 py-1 rounded-lg font-bold">
-                  Incentive: ₹{currentRate} / {unit}
+
+                <div className="flex items-center gap-3">
+                  {/* Delivery Type Dropdown as requested */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-slate-600 uppercase">Delivery:</span>
+                    <select
+                      value={deliveryType}
+                      onChange={(e) => setDeliveryType(e.target.value)}
+                      className="px-2.5 py-1 text-xs font-bold border border-blue-300 rounded-lg bg-white text-blue-950 focus:ring-2 focus:ring-blue-500"
+                    >
+                      {DELIVERY_TYPES.map(dt => (
+                        <option key={dt} value={dt}>{dt}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddSalesProduct}
+                    className="px-3 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                  >
+                    <PlusCircle size={13} />
+                    <span>Add Product</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {/* Product Name */}
-                <div className="md:col-span-1">
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Product Name <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    value={productName}
-                    onChange={(e) => handleProductChange(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
+              {/* DYNAMIC MULTI-PRODUCT LIST */}
+              <div className="space-y-3">
+                {salesProducts.map((item, idx) => (
+                  <div 
+                    key={item.id}
+                    className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3 relative group"
                   >
-                    {Object.keys(PRODUCT_INCENTIVE_RATES).map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                    <option value="Other">Other / Custom Material</option>
-                  </select>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                        Item #{idx + 1}
+                      </span>
 
-                  {productName === 'Other' && (
-                    <input
-                      type="text"
-                      placeholder="Specify custom product name..."
-                      value={customProductName}
-                      onChange={(e) => setCustomProductName(e.target.value)}
-                      className="mt-2 w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  )}
-                </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          Incentive: <span className="font-bold text-emerald-700">₹{item.incentiveRate || 0}/{item.unit}</span>
+                        </span>
+                        {salesProducts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSalesProduct(item.id)}
+                            className="p-1 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                            title="Remove Product Line"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                {/* Quantity */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Quantity <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    placeholder="e.g. 100"
-                    value={quantity}
-                    onChange={(e) => handleQuantityChange(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                    required
-                  />
-                </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                      {/* Product Selection - Configured Products Only */}
+                      <div className="sm:col-span-2 md:col-span-1">
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Product (From Config) <span className="text-rose-500">*</span>
+                        </label>
+                        <select
+                          value={item.productName}
+                          onChange={(e) => handleUpdateSalesProduct(item.id, 'productName', e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                        >
+                          {configuredProducts.map((cp) => (
+                            <option key={cp.id || cp.name} value={cp.name}>
+                              {cp.name} ({cp.unit || 'Units'})
+                            </option>
+                          ))}
+                          {configuredProducts.length === 0 && (
+                            <option value="Cement (UltraTech / ACC)">Cement (UltraTech / ACC)</option>
+                          )}
+                        </select>
+                      </div>
 
-                {/* Unit */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Unit
-                  </label>
-                  <select
-                    value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Bags">Bags</option>
-                    <option value="MT">MT (Metric Tonnes)</option>
-                    <option value="Kgs">Kgs</option>
-                    <option value="Pcs">Pcs</option>
-                    <option value="CFT">CFT</option>
-                  </select>
-                </div>
+                      {/* Quantity */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Quantity ({item.unit}) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.1"
+                          placeholder="e.g. 100"
+                          value={item.quantity}
+                          onChange={(e) => handleUpdateSalesProduct(item.id, 'quantity', e.target.value)}
+                          className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
 
-                {/* Delivery Type */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Delivery Type
-                  </label>
-                  <select
-                    value={deliveryType}
-                    onChange={(e) => setDeliveryType(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Site Delivery / Dispatched">Site Delivery / Dispatched</option>
-                    <option value="Ex-Yard / Direct Pickup">Ex-Yard / Direct Pickup</option>
-                    <option value="Warehouse Transfer">Warehouse Transfer</option>
-                    <option value="Transport / Carrier">Transport / Carrier</option>
-                  </select>
-                </div>
+                      {/* Line Item Total Billing Amount */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                          Billing Amount (₹) <span className="text-rose-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="any"
+                            min="1"
+                            placeholder="₹ 0.00"
+                            value={item.billingAmount}
+                            onChange={(e) => handleUpdateSalesProduct(item.id, 'billingAmount', e.target.value)}
+                            className="w-full pl-6 pr-3 py-2 text-xs font-black border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 text-slate-900"
+                            required
+                          />
+                          <IndianRupee size={12} className="absolute left-2 top-2.5 text-slate-400" />
+                        </div>
+                      </div>
 
-                {/* Billing Amount */}
-                <div className="sm:col-span-2">
-                  <div className="flex justify-between items-center mb-1.5">
-                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                      Billing Amount (₹)
-                    </label>
-                    <span className="text-[10px] text-slate-400">
-                      {unit === 'Bags' ? 'e.g. ₹336/bag calculated' : 'Auto-calculated or custom'}
-                    </span>
+                      {/* Unit Cost Calculation: Billing / Quantity */}
+                      <div className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex flex-col justify-center">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">Unit Cost (Rate)</span>
+                        <div className="text-xs font-extrabold text-blue-900 mt-0.5">
+                          {parseFloat(item.unitCost) > 0 ? (
+                            <span>₹{item.unitCost} <span className="text-[10px] font-semibold text-slate-500">/ {item.unit}</span></span>
+                          ) : (
+                            <span className="text-slate-400 font-normal">Enter Qty & Bill</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      placeholder="₹ 0.00"
-                      value={billingAmount}
-                      onChange={(e) => {
-                        setBillingAmount(e.target.value);
-                        setAutoCalcBilling(false);
-                      }}
-                      className="w-full pl-8 pr-4 py-2.5 text-sm font-black border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500 text-slate-900"
-                      required
-                    />
-                    <IndianRupee size={15} className="absolute left-2.5 top-3 text-slate-400" />
-                  </div>
-                </div>
+                ))}
               </div>
 
-              {/* Estimated Incentive Math Card */}
-              <div className="bg-blue-600 text-white p-3.5 rounded-xl flex items-center justify-between shadow-sm">
-                <div className="flex items-center gap-2.5">
-                  <Calculator size={18} className="text-blue-200 shrink-0" />
+              {/* GRAND TOTAL SUMMARY BAR */}
+              <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl shadow-md flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white/10 rounded-lg text-blue-300">
+                    <Calculator size={20} />
+                  </div>
                   <div>
-                    <p className="text-xs font-bold">Estimated Bag / Volume Incentive</p>
-                    <p className="text-[11px] text-blue-100">
-                      {numQty > 0 
-                        ? `${numQty} ${unit} × ₹${currentRate}/${unit}` 
-                        : 'Enter quantity above to calculate incentive'}
+                    <p className="text-[10px] uppercase font-bold text-blue-200">
+                      Total Order Summary ({salesTotals.itemsCount} Product Lines)
+                    </p>
+                    <p className="text-xs text-slate-200">
+                      Total Volume: <span className="font-bold text-white">{salesTotals.totalQty} Units</span> • Est. Incentive: <span className="font-bold text-emerald-300">₹{salesTotals.totalIncentive.toLocaleString('en-IN')}</span>
                     </p>
                   </div>
                 </div>
-                <div className="text-lg font-black tracking-tight font-mono">
-                  ₹{calculatedIncentive.toLocaleString('en-IN')}
+
+                <div className="text-right">
+                  <p className="text-[10px] uppercase font-bold text-blue-200">Total Billing Amount</p>
+                  <p className="text-xl sm:text-2xl font-black text-emerald-300 font-mono tracking-tight">
+                    ₹{salesTotals.totalBilling.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </p>
                 </div>
               </div>
             </div>
           )}
 
           {/* ========================================================================= */}
-          {/* CONDITIONAL BLOCK 2: PAYMENT COLLECTION                                   */}
+          {/* CONDITIONAL BLOCK 2: PAYMENT COLLECTION & DUES / PAST ORDERS VISIBILITY   */}
           {/* ========================================================================= */}
           {visitPurpose === 'Payment Collection' && (
-            <div className="bg-gradient-to-br from-emerald-50/80 to-slate-50 p-5 rounded-2xl border border-emerald-200/90 space-y-4 animate-in fade-in duration-200">
+            <div className="bg-gradient-to-br from-emerald-50/80 to-slate-50 p-5 rounded-2xl border border-emerald-200/90 space-y-5 animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-emerald-200/80">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-emerald-600 text-white rounded-lg">
@@ -878,18 +1243,122 @@ export default function VisitLogger({ user }) {
                   </div>
                   <div>
                     <h3 className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
-                      Payment Collection & Transaction Details
+                      Payment Collection & Outstanding Dues Ledger
                     </h3>
                     <p className="text-[11px] text-slate-500">
-                      Record payment instrument, txn reference, and received amount
+                      Inspect past orders, total outstanding dues balance, and record payment receipt
                     </p>
                   </div>
                 </div>
                 <span className="text-[11px] text-emerald-700 font-bold bg-emerald-100/80 px-2.5 py-1 rounded-lg">
-                  Ledger Settlement
+                  Ledger Direct Collection
                 </span>
               </div>
 
+              {/* DUES SUMMARY & PAST ORDER CARD FOR SELECTED FIRM */}
+              {selectedFirmHistory && (
+                <div className="bg-white p-4 rounded-xl border border-emerald-200 shadow-xs space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-slate-900">{selectedFirmHistory.firmName}</span>
+                        <span className="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                          {selectedFirmHistory.gstin}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500">
+                        {selectedFirmHistory.address} {selectedFirmHistory.phone !== 'N/A' && `• Contact: ${selectedFirmHistory.phone}`}
+                      </p>
+                    </div>
+
+                    {/* DUES STATS */}
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <span className="text-[10px] font-bold uppercase text-slate-500">Outstanding Balance</span>
+                        <div className={`text-base sm:text-lg font-black font-mono ${
+                          selectedFirmHistory.netDues > 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}>
+                          ₹{selectedFirmHistory.netDues.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+
+                      {selectedFirmHistory.netDues > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setTransactionAmount(selectedFirmHistory.netDues.toString())}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold rounded-lg shadow-xs transition-all shrink-0"
+                        >
+                          Collect Full Due
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* PAST ORDERS TABLE */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <History size={13} className="text-emerald-600" />
+                        Past Orders & Transactions ({selectedFirmHistory.pastOrders.length})
+                      </h4>
+                      <span className="text-[10px] text-slate-500">
+                        Total Billed: <span className="font-bold text-slate-800">₹{selectedFirmHistory.totalBilled.toLocaleString('en-IN')}</span> | Paid: <span className="font-bold text-emerald-700">₹{selectedFirmHistory.totalCollected.toLocaleString('en-IN')}</span>
+                      </span>
+                    </div>
+
+                    {selectedFirmHistory.pastOrders.length === 0 ? (
+                      <div className="p-3 bg-slate-50 rounded-lg text-center text-xs text-slate-500 border border-slate-100">
+                        No previous orders or payment transactions logged for this firm yet.
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto border border-slate-100 rounded-lg divide-y divide-slate-100 text-xs">
+                        {selectedFirmHistory.pastOrders.slice(0, 10).map((po, idx) => {
+                          const isSale = (po.visitPurpose || po.purpose || '').includes('Sale') || (po.orderValue > 0);
+                          const isPay = (po.visitPurpose || po.purpose || '').includes('Pay') || (po.collectedAmount > 0);
+                          const dateStr = (po.paymentDate || po.transactionDate || po.timestamp || '').split('T')[0];
+
+                          return (
+                            <div key={po.id || idx} className="p-2.5 hover:bg-slate-50 flex items-center justify-between gap-3">
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                  <span className={`w-2 h-2 rounded-full ${isSale ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                                  <span className="truncate">{po.productName || po.product || (isSale ? 'Sales Order' : 'Payment Receipt')}</span>
+                                  {po.deliveryType && (
+                                    <span className="text-[10px] font-normal text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
+                                      {po.deliveryType}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-500 flex items-center gap-2">
+                                  <span>{dateStr}</span>
+                                  {po.quantity > 0 && <span>• Qty: {po.quantity} {po.unit || 'Units'}</span>}
+                                  {po.paymentMode && po.paymentMode !== 'None' && <span>• Mode: {po.paymentMode}</span>}
+                                  {po.txnId && <span>• Ref: {po.txnId}</span>}
+                                </div>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                {isSale && (
+                                  <div className="font-bold text-blue-700 font-mono">
+                                    +₹{(po.orderValue || po.billingAmount || 0).toLocaleString('en-IN')}
+                                  </div>
+                                )}
+                                {isPay && (
+                                  <div className="font-bold text-emerald-700 font-mono">
+                                    -₹{(po.collectedAmount || po.transactionAmount || 0).toLocaleString('en-IN')}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* PAYMENT COLLECTION INPUTS */}
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Payment Method */}
                 <div>
@@ -902,10 +1371,10 @@ export default function VisitLogger({ user }) {
                     className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                     required
                   >
-                    <option value="NEFT">NEFT</option>
-                    <option value="UPI">UPI</option>
-                    <option value="Bank Transfer">Bank Transfer</option>
-                    <option value="Cheque">Cheque</option>
+                    <option value="UPI">Google Pay / UPI</option>
+                    <option value="NEFT">NEFT / NetBanking</option>
+                    <option value="Bank Transfer">Direct Bank Transfer</option>
+                    <option value="Cheque">Cheque Deposit</option>
                     <option value="Cash Deposit">Cash Deposit</option>
                   </select>
                 </div>
@@ -913,7 +1382,7 @@ export default function VisitLogger({ user }) {
                 {/* Transaction Amount */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Txn Amount (₹) <span className="text-rose-500">*</span>
+                    Collected Amount (₹) <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
                     <input
@@ -947,11 +1416,11 @@ export default function VisitLogger({ user }) {
                 {/* Transaction ID */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Transaction ID / Ref <span className="text-rose-500">*</span>
+                    Txn ID / UTR / Cheque No. <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. UTR-82910 or CHQ-3029"
+                    placeholder="e.g. UTR-928410 or CHQ-0032"
                     value={transactionId}
                     onChange={(e) => setTxnId(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm font-mono font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
@@ -1128,7 +1597,7 @@ export default function VisitLogger({ user }) {
             </div>
             <h4 className="text-base font-bold text-slate-800">No visits logged for today yet.</h4>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              Use the dynamic form above to record your client visits, sales volume, and payment collections.
+              Use the dynamic form above to record your client visits, multi-product sales, and payment collections.
             </p>
           </div>
         ) : (
@@ -1137,155 +1606,164 @@ export default function VisitLogger({ user }) {
               const p = visit.visitPurpose || visit.purpose || 'Sales';
               const isSales = p.includes('Sale') || p.includes('Order');
               const isPayment = p.includes('Payment');
+              const hasMultiProducts = Array.isArray(visit.products) && visit.products.length > 0;
 
               return (
-                <div
+                <div 
                   key={visit.id}
-                  className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 hover:border-blue-300 transition-all space-y-3 relative"
+                  className="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-md transition-all space-y-3 relative group"
                 >
-                  {/* Header */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="font-bold text-slate-900 text-base leading-snug">
-                        {visit.clientName || visit.firmName}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full ${
+                          isSales ? 'bg-blue-100 text-blue-800' : isPayment ? 'bg-emerald-100 text-emerald-800' : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {p}
+                        </span>
+                        {visit.deliveryType && (
+                          <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                            {visit.deliveryType}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900 mt-1">
+                        {visit.clientName || visit.firmName || 'Client Visit'}
                       </h4>
-                      <span className={`inline-block mt-1 text-[11px] font-bold px-2.5 py-0.5 rounded-md border ${
-                        isSales 
-                          ? 'bg-blue-50 text-blue-700 border-blue-100' 
-                          : isPayment 
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
-                          : 'bg-purple-50 text-purple-700 border-purple-100'
-                      }`}>
-                        {p}
-                      </span>
                     </div>
 
-                    {/* Actions: Edit / Delete for Today's log */}
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Action buttons (Edit & Delete for today's logs) */}
+                    <div className="flex items-center gap-1.5 opacity-90 group-hover:opacity-100">
                       <button
                         onClick={() => handleStartEdit(visit)}
-                        title="Edit this today's log"
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                        title="Edit Today's Record"
                       >
                         <Edit3 size={15} />
                       </button>
-
-                      {deleteConfirmId === visit.id ? (
-                        <div className="flex items-center gap-1 bg-rose-50 p-1 rounded-lg border border-rose-200">
-                          <button
-                            onClick={() => handleDeleteVisit(visit.id)}
-                            className="px-2 py-0.5 bg-rose-600 text-white rounded text-[10px] font-bold"
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmId(null)}
-                            className="p-0.5 text-slate-500 hover:text-slate-700"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirmId(visit.id)}
-                          title="Delete this today's log"
-                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => setDeleteConfirmId(visit.id)}
+                        className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                        title="Delete Record"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
 
-                  {/* SALES CARD */}
-                  {isSales && (visit.productName || visit.product || visit.billingAmount > 0 || visit.orderValue > 0) && (
-                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100 space-y-2 text-xs">
-                      <div className="flex justify-between items-center text-slate-700">
-                        <span className="font-bold text-slate-900">
-                          {visit.productName || visit.product || 'Product'}{' '}
-                          {visit.quantity ? `(${visit.quantity} ${visit.unit || 'Bags'})` : ''}
-                        </span>
-                        <span className="font-black text-slate-900 text-sm">
-                          ₹{(visit.billingAmount || visit.orderValue || 0).toLocaleString('en-IN')}
-                        </span>
+                  {/* Details block */}
+                  <div className="p-3 bg-slate-50/80 rounded-xl space-y-1.5 text-xs text-slate-700">
+                    {isSales && (
+                      <>
+                        {hasMultiProducts ? (
+                          <div className="space-y-1">
+                            <span className="text-[11px] font-bold text-slate-600">Products Ordered ({visit.products.length}):</span>
+                            {visit.products.map((item, pidx) => (
+                              <div key={pidx} className="flex justify-between text-[11px] pl-2 border-l-2 border-blue-400">
+                                <span>{item.productName} ({item.quantity} {item.unit})</span>
+                                <span className="font-bold text-slate-900">₹{(parseFloat(item.billingAmount) || 0).toLocaleString('en-IN')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Product:</span>
+                            <span className="font-bold text-slate-900">{visit.productName || visit.product} ({visit.quantity} {visit.unit})</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between pt-1 border-t border-slate-200">
+                          <span className="text-slate-500 font-bold">Total Billing:</span>
+                          <span className="font-black text-blue-700 font-mono">₹{(visit.orderValue || visit.billingAmount || 0).toLocaleString('en-IN')}</span>
+                        </div>
+                        {visit.bagIncentive > 0 && (
+                          <div className="flex justify-between text-[11px]">
+                            <span className="text-emerald-700 font-semibold">Sales Incentive Earned:</span>
+                            <span className="font-bold text-emerald-700 font-mono">+₹{visit.bagIncentive.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {isPayment && (
+                      <>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Payment Mode:</span>
+                          <span className="font-bold text-emerald-800">{visit.paymentMethod || visit.paymentMode || 'UPI'}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Txn Ref:</span>
+                          <span className="font-mono font-bold text-slate-800">{visit.transactionId || visit.txnId || 'N/A'}</span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t border-slate-200">
+                          <span className="text-slate-500 font-bold">Collected Amount:</span>
+                          <span className="font-black text-emerald-700 font-mono">₹{(visit.collectedAmount || visit.transactionAmount || 0).toLocaleString('en-IN')}</span>
+                        </div>
+                      </>
+                    )}
+
+                    {!isSales && !isPayment && (
+                      <div className="space-y-1">
+                        {visit.discussionTopic && (
+                          <div>
+                            <span className="text-slate-500">Topic: </span>
+                            <span className="font-medium text-slate-800">{visit.discussionTopic}</span>
+                          </div>
+                        )}
+                        {visit.nextFollowUpDate && (
+                          <div>
+                            <span className="text-slate-500">Next Follow-up: </span>
+                            <span className="font-bold text-purple-700">{visit.nextFollowUpDate}</span>
+                          </div>
+                        )}
                       </div>
+                    )}
 
-                      {visit.deliveryType && (
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500">
-                          <Truck size={12} className="text-slate-400" />
-                          <span>{visit.deliveryType}</span>
-                        </div>
-                      )}
-
-                      {visit.bagIncentive > 0 && (
-                        <div className="flex justify-between items-center text-[11px] text-blue-700 pt-1.5 border-t border-slate-200 font-semibold">
-                          <span>Volume Incentive:</span>
-                          <span className="font-bold">₹{visit.bagIncentive.toLocaleString('en-IN')}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* PAYMENT COLLECTION CARD */}
-                  {isPayment && (visit.transactionAmount > 0 || visit.collectedAmount > 0) && (
-                    <div className="bg-emerald-50/70 p-3.5 rounded-xl border border-emerald-200/80 space-y-1.5 text-xs">
-                      <div className="flex justify-between items-center text-emerald-950 font-bold">
-                        <span className="flex items-center gap-1.5 text-emerald-800">
-                          <CreditCard size={14} className="text-emerald-700" />
-                          {visit.paymentMethod || visit.paymentMode || 'Cash'}
-                        </span>
-                        <span className="font-mono font-black text-sm text-emerald-800">
-                          ₹{(visit.transactionAmount || visit.collectedAmount || 0).toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      {(visit.transactionId || visit.txnId) && (
-                        <p className="text-[11px] font-mono text-emerald-700">
-                          Txn ID: {visit.transactionId || visit.txnId}
-                        </p>
-                      )}
-                      {(visit.transactionDate || visit.paymentDate) && (
-                        <p className="text-[10px] text-emerald-600">
-                          Txn Date: {visit.transactionDate || visit.paymentDate}
-                        </p>
-                      )}
-                    </div>
-                  )}
-
-                  {/* FOLLOW-UP / SUPPORT / ONBOARDING CARD */}
-                  {!isSales && !isPayment && (
-                    <div className="bg-purple-50/70 p-3.5 rounded-xl border border-purple-100 space-y-1.5 text-xs">
-                      {visit.discussionTopic && (
-                        <div className="font-semibold text-purple-900">
-                          <span className="text-purple-600 font-bold">Topic:</span> {visit.discussionTopic}
-                        </div>
-                      )}
-                      {visit.nextFollowUpDate && (
-                        <div className="text-[11px] text-purple-700 flex items-center gap-1">
-                          <Calendar size={11} /> Next Follow-up: {visit.nextFollowUpDate}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Remarks / Notes */}
-                  {(visit.note || visit.notes) && (
-                    <p className="text-xs text-slate-600 bg-slate-50/70 p-2.5 rounded-xl italic border border-slate-100">
-                      "{visit.note || visit.notes}"
-                    </p>
-                  )}
-
-                  {/* Footer */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-100">
-                    <span className="flex items-center gap-1">
-                      <Clock size={12} />
-                      {new Date(visit.timestamp || visit.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                    {visit.location && (
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {visit.location.lat}, {visit.location.lng}
-                      </span>
+                    {visit.note && (
+                      <p className="text-[11px] text-slate-500 italic pt-1 border-t border-slate-200">
+                        "{visit.note}"
+                      </p>
                     )}
                   </div>
+
+                  {/* Geofence verification pill */}
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                    <span className="flex items-center gap-1 font-mono">
+                      <Clock size={11} /> {new Date(visit.timestamp || visit.paymentDate || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    {visit.geofenceStatus === 'VERIFIED_ON_SITE' ? (
+                      <span className="text-emerald-700 font-bold flex items-center gap-0.5">
+                        <ShieldCheck size={11} /> Verified On-Site ({visit.distanceFromFirmMeters || 0}m)
+                      </span>
+                    ) : visit.geofenceStatus === 'VICINITY' ? (
+                      <span className="text-amber-700 font-bold flex items-center gap-0.5">
+                        <Navigation size={11} /> Vicinity ({visit.distanceFromFirmMeters}m)
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Delete Confirmation Modal */}
+                  {deleteConfirmId === visit.id && (
+                    <div className="absolute inset-0 bg-white/95 backdrop-blur-xs rounded-2xl p-4 flex flex-col items-center justify-center text-center space-y-3 z-10 animate-in fade-in">
+                      <AlertTriangle size={24} className="text-rose-600" />
+                      <p className="text-xs font-bold text-slate-900">
+                        Delete this visit log for "{visit.clientName || visit.firmName}"?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleDeleteVisit(visit.id)}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold shadow-xs"
+                        >
+                          Confirm Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1295,4 +1773,3 @@ export default function VisitLogger({ user }) {
     </div>
   );
 }
-

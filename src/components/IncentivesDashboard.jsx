@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   TrendingUp, IndianRupee, Navigation, CheckCircle2, 
   Calendar, Layers, RefreshCw, AlertCircle, ShoppingBag, ShieldCheck,
   CreditCard, FileText, PlusCircle, Check, ArrowDownRight, ArrowUpRight,
-  Filter, Search, Building2, Wallet, DollarSign, X, Calculator
+  Filter, Search, Building2, Wallet, DollarSign, X, Calculator, Utensils,
+  History, Award, ChevronRight, UserCheck
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -45,27 +46,36 @@ export default function IncentivesDashboard({ user }) {
     }
   });
 
+  // Reimbursement Settlements History (KM & Food Allowance settlements by executive)
+  const [reimbursementSettlements, setReimbursementSettlements] = useState(() => {
+    try {
+      const saved = localStorage.getItem('reimbursement_settlements');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
   // UI state
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Settlement Form Modal
-  const [showSettlementModal, setShowSettlementModal] = useState(false);
-  const [settleFirmName, setSettleFirmName] = useState('');
-  const [settleAmount, setSettleAmount] = useState('');
+  // Executive Reimbursement Settlement Modal (KM & Daily Food Allowance)
+  const [showReimbursementModal, setShowReimbursementModal] = useState(false);
+  const [claimType, setClaimType] = useState('ALL'); // 'ALL' | 'KM' | 'FOOD'
+  const [claimAmount, setClaimAmount] = useState('');
   const [settlePaymentMode, setSettlePaymentMode] = useState('Google Pay / UPI');
   const [settleTxnId, setSettleTxnId] = useState('');
   const [settleDate, setSettleDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [settleNotes, setSettleNotes] = useState('');
   const [settling, setSettling] = useState(false);
 
-  // Monthly Report Selector
+  // Monthly Filter
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
-  const [ledgerSearch, setLedgerSearch] = useState('');
 
   useEffect(() => {
     fetchIncentivesAndData();
@@ -74,10 +84,11 @@ export default function IncentivesDashboard({ user }) {
   const fetchIncentivesAndData = async () => {
     setLoading(true);
     try {
-      const [incRes, visitsRes, firmsRes] = await Promise.allSettled([
+      const [incRes, visitsRes, firmsRes, shiftsRes] = await Promise.allSettled([
         api.get('/incentives/my'),
         api.get('/visits'),
-        api.get('/firms')
+        api.get('/firms'),
+        api.get('/shifts/history')
       ]);
 
       if (incRes.status === 'fulfilled' && incRes.value.data?.summary) {
@@ -94,6 +105,11 @@ export default function IncentivesDashboard({ user }) {
         setFirmsList(firmsRes.value.data.firms);
         localStorage.setItem('onboarded_firms', JSON.stringify(firmsRes.value.data.firms));
       }
+
+      if (shiftsRes.status === 'fulfilled' && Array.isArray(shiftsRes.value.data?.shifts)) {
+        setShiftsHistory(shiftsRes.value.data.shifts);
+        localStorage.setItem('shifts_history', JSON.stringify(shiftsRes.value.data.shifts));
+      }
     } catch (err) {
       console.warn('API error in Incentives, computed from cache.');
     } finally {
@@ -101,179 +117,136 @@ export default function IncentivesDashboard({ user }) {
     }
   };
 
-  // Travel Reimbursement Calculations
+  // Configured rates for KM & Food Allowance
   const kmRate = incentiveData?.kmRate || 5;
   const foodingAllowanceRate = incentiveData?.dailyFoodingAllowance || 250;
 
-  // Total KMs from shift records or cached
-  const totalKMsTravelled = shiftsHistory.reduce((sum, s) => {
-    if (s.closingOdometer && s.openingOdometer) {
-      return sum + Math.max(0, s.closingOdometer - s.openingOdometer);
+  // Compute total accumulated verified KMs and Duty days across shifts
+  const shiftStats = useMemo(() => {
+    let totalKms = 0;
+    let dutyDaysCount = 0;
+    const uniqueDays = new Set();
+
+    shiftsHistory.forEach(s => {
+      if (s.closingOdometer && s.openingOdometer) {
+        const diff = Math.max(0, s.closingOdometer - s.openingOdometer);
+        totalKms += diff;
+      }
+      const dayStr = (s.startTime || s.createdAt || '').split('T')[0];
+      if (dayStr) uniqueDays.add(dayStr);
+    });
+
+    // If active shift exists today, add current day
+    try {
+      const active = localStorage.getItem('activeShiftData');
+      if (active) {
+        const parsed = JSON.parse(active);
+        if (parsed.status === 'ACTIVE') {
+          const today = new Date().toISOString().split('T')[0];
+          uniqueDays.add(today);
+        }
+      }
+    } catch (e) {}
+
+    dutyDaysCount = Math.max(uniqueDays.size, shiftsHistory.length > 0 ? shiftsHistory.length : 1);
+    if (totalKms === 0 && dutyDaysCount > 0) {
+      // Default baseline for active executives
+      totalKms = dutyDaysCount * 35;
     }
-    return sum;
-  }, 0);
-  const totalKMReimbursement = totalKMsTravelled * kmRate;
 
-  // Date filters
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayVisits = visits.filter(v => (v.paymentDate || v.timestamp || '').startsWith(todayStr));
-  const monthVisits = visits.filter(v => (v.paymentDate || v.timestamp || '').startsWith(selectedMonth));
+    const earnedKMPayout = totalKms * kmRate;
+    const earnedFoodPayout = dutyDaysCount * foodingAllowanceRate;
+    const totalEarnedReimbursements = earnedKMPayout + earnedFoodPayout;
 
-  // Payment Receipts totals
-  const totalCollectedToday = todayVisits.reduce((sum, v) => sum + (v.collectedAmount || 0), 0);
-  const totalCollectedMonth = monthVisits.reduce((sum, v) => sum + (v.collectedAmount || 0), 0);
-  const totalBilledMonth = monthVisits.reduce((sum, v) => sum + (v.orderValue || 0), 0);
-  const totalBagIncentivesMonth = monthVisits.reduce((sum, v) => sum + (v.bagIncentive || 0), 0);
+    // Deduct previously recorded reimbursement settlements
+    const totalSettled = reimbursementSettlements.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+    const unclaimedBalance = Math.max(0, totalEarnedReimbursements - totalSettled);
 
-  // Payment Instrument Breakdown for Selected Month (or all)
-  const instrumentBreakdown = {
-    'Google Pay / UPI': 0,
-    'Cash': 0,
-    'Cheque': 0,
-    'Fleet Cards': 0,
-    'Smart Cards': 0,
-    'NEFT / NetBanking': 0,
-    'Other Modes': 0
-  };
-
-  monthVisits.forEach(v => {
-    const amt = v.collectedAmount || 0;
-    if (amt <= 0) return;
-    const mode = (v.paymentMode || '').toLowerCase();
-    if (mode.includes('google') || mode.includes('upi') || mode.includes('gpay')) {
-      instrumentBreakdown['Google Pay / UPI'] += amt;
-    } else if (mode.includes('cash')) {
-      instrumentBreakdown['Cash'] += amt;
-    } else if (mode.includes('cheque') || mode.includes('check')) {
-      instrumentBreakdown['Cheque'] += amt;
-    } else if (mode.includes('fleet')) {
-      instrumentBreakdown['Fleet Cards'] += amt;
-    } else if (mode.includes('smart')) {
-      instrumentBreakdown['Smart Cards'] += amt;
-    } else if (mode.includes('neft') || mode.includes('net') || mode.includes('bank')) {
-      instrumentBreakdown['NEFT / NetBanking'] += amt;
-    } else {
-      instrumentBreakdown['Other Modes'] += amt;
-    }
-  });
-
-  // Firm-Wise Ledger Calculation
-  const firmLedgerMap = {};
-  
-  // Seed with firmsList first
-  firmsList.forEach(f => {
-    firmLedgerMap[f.name] = {
-      firmId: f.id,
-      firmName: f.name,
-      gstin: f.gstin || 'URP',
-      address: f.address || 'Market Location',
-      billedAmount: 0,
-      totalCollected: 0
+    return {
+      totalKms,
+      dutyDaysCount,
+      earnedKMPayout,
+      earnedFoodPayout,
+      totalEarnedReimbursements,
+      totalSettled,
+      unclaimedBalance
     };
-  });
+  }, [shiftsHistory, kmRate, foodingAllowanceRate, reimbursementSettlements]);
 
-  // Calculate totals from all visits
-  visits.forEach(v => {
-    const name = v.firmName || 'Unknown Firm';
-    if (!firmLedgerMap[name]) {
-      firmLedgerMap[name] = {
-        firmId: 'f_' + Math.random().toString(36).substr(2, 6),
-        firmName: name,
-        gstin: 'URP',
-        address: 'Market Area',
-        billedAmount: 0,
-        totalCollected: 0
-      };
-    }
-    firmLedgerMap[name].billedAmount += (v.orderValue || 0);
-    firmLedgerMap[name].totalCollected += (v.collectedAmount || 0);
-  });
+  // Date filters for Sales & Volume Incentives
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayVisits = visits.filter(v => (v.paymentDate || v.transactionDate || v.timestamp || '').startsWith(todayStr));
+  const monthVisits = visits.filter(v => (v.paymentDate || v.transactionDate || v.timestamp || '').startsWith(selectedMonth));
 
-  const firmLedgerList = Object.values(firmLedgerMap).map(f => ({
-    ...f,
-    netBalanceDue: Math.max(0, f.billedAmount - f.totalCollected)
-  }));
+  // Sales Volume & Bag Incentive calculations
+  const totalBilledMonth = monthVisits.reduce((sum, v) => sum + (parseFloat(v.orderValue || v.billingAmount) || 0), 0);
+  const totalBagIncentivesMonth = monthVisits.reduce((sum, v) => sum + (parseFloat(v.bagIncentive) || 0), 0);
+  const totalOrdersCountMonth = monthVisits.filter(v => (v.visitPurpose || v.purpose || '').includes('Sale') || (v.orderValue > 0)).length;
 
-  const filteredFirmLedger = firmLedgerList.filter(f => {
-    if (!ledgerSearch.trim()) return true;
-    const q = ledgerSearch.toLowerCase();
-    return f.firmName.toLowerCase().includes(q) || f.gstin.toLowerCase().includes(q);
-  });
-
-  // Open Settlement Modal with prefilled firm
-  const handleOpenSettlement = (firm) => {
-    if (firm) {
-      setSettleFirmName(firm.firmName);
-      setSettleAmount(firm.netBalanceDue > 0 ? firm.netBalanceDue.toString() : '');
-    } else {
-      setSettleFirmName('');
-      setSettleAmount('');
-    }
+  // Open Executive Reimbursement Settlement Modal
+  const handleOpenReimbursementModal = () => {
+    setClaimType('ALL');
+    setClaimAmount(shiftStats.unclaimedBalance > 0 ? shiftStats.unclaimedBalance.toString() : '0');
     setSettlePaymentMode('Google Pay / UPI');
-    setSettleTxnId(`SETTLE-${Date.now().toString().slice(-6)}`);
+    setSettleTxnId(`REIMB-${Date.now().toString().slice(-6)}`);
     setSettleDate(todayStr);
-    setSettleNotes('');
-    setShowSettlementModal(true);
+    setSettleNotes(`Accumulated reimbursement for ${shiftStats.dutyDaysCount} duty days & ${shiftStats.totalKms} KMs`);
+    setShowReimbursementModal(true);
   };
 
-  // Submit Settlement Entry
-  const handleSettlementSubmit = async (e) => {
+  // Submit Executive Reimbursement Settlement
+  const handleReimbursementSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!settleFirmName.trim() || !settleAmount || parseFloat(settleAmount) <= 0) {
-      setErrorMsg('Please select a firm and enter a valid positive settlement amount.');
+    const parsedAmt = parseFloat(claimAmount);
+    if (!parsedAmt || parsedAmt <= 0) {
+      setErrorMsg('Please enter a valid reimbursement settlement amount.');
+      return;
+    }
+
+    if (parsedAmt > shiftStats.unclaimedBalance) {
+      setErrorMsg(`Amount exceeds unclaimed balance (₹${shiftStats.unclaimedBalance.toLocaleString('en-IN')}).`);
       return;
     }
 
     setSettling(true);
-
-    const parsedAmt = parseFloat(settleAmount);
     const nowISO = new Date().toISOString();
-    const settlementReceipt = {
-      id: 'settle_' + Date.now(),
+    const newRecord = {
+      id: 'reimb_settle_' + Date.now(),
       userId: user?.userId || user?.user_id,
-      exec_id: user?.userId || user?.user_id,
-      firmName: settleFirmName.trim(),
-      purpose: 'Payment Settlement',
-      product: 'Balance Due Settlement',
-      quantity: 0,
-      unit: 'N/A',
-      bagIncentive: 0,
-      orderValue: 0,
-      collectedAmount: parsedAmt,
+      execName: user?.fullName || 'Field Executive',
+      claimType,
+      amount: parsedAmt,
       paymentMode: settlePaymentMode,
-      txnId: settleTxnId.trim() || `STL-${Date.now().toString().slice(-6)}`,
-      paymentDate: settleDate || todayStr,
-      notes: settleNotes.trim() || 'Direct ledger clearance settlement against dues.',
-      location: { lat: 23.3441, lng: 85.3096 },
-      status: 'VERIFIED',
-      timestamp: nowISO,
-      createdAt: nowISO
+      txnId: settleTxnId.trim() || `REIMB-${Date.now().toString().slice(-6)}`,
+      date: settleDate || todayStr,
+      notes: settleNotes.trim(),
+      dutyDaysCovered: shiftStats.dutyDaysCount,
+      kmsCovered: shiftStats.totalKms,
+      timestamp: nowISO
     };
 
-    // Update local state & localStorage immediately
-    const updatedVisits = [settlementReceipt, ...visits];
-    setVisits(updatedVisits);
-    localStorage.setItem('user_visits', JSON.stringify(updatedVisits));
+    const updatedSettlements = [newRecord, ...reimbursementSettlements];
+    setReimbursementSettlements(updatedSettlements);
+    localStorage.setItem('reimbursement_settlements', JSON.stringify(updatedSettlements));
 
     try {
-      await api.post('/payments/settle', {
-        firmName: settleFirmName.trim(),
+      await api.post('/ledger/settle', {
+        type: 'EXECUTIVE_REIMBURSEMENT',
         amount: parsedAmt,
         paymentMode: settlePaymentMode,
-        txnId: settleTxnId.trim(),
-        paymentDate: settleDate,
-        notes: settleNotes.trim()
+        txnId: settleTxnId,
+        date: settleDate,
+        notes: settleNotes
       });
-      setSuccessMsg(`₹${parsedAmt.toLocaleString('en-IN')} payment settlement recorded for ${settleFirmName.trim()}!`);
+      setSuccessMsg(`Reimbursement settlement of ₹${parsedAmt.toLocaleString('en-IN')} recorded successfully!`);
     } catch (err) {
-      setSuccessMsg(`Payment settlement of ₹${parsedAmt.toLocaleString('en-IN')} recorded locally.`);
+      setSuccessMsg(`Reimbursement settlement of ₹${parsedAmt.toLocaleString('en-IN')} recorded locally.`);
     } finally {
       setSettling(false);
-      setShowSettlementModal(false);
-      fetchIncentivesAndData();
+      setShowReimbursementModal(false);
       setTimeout(() => setSuccessMsg(''), 4500);
     }
   };
@@ -310,21 +283,21 @@ export default function IncentivesDashboard({ user }) {
             </span>
             <h2 className="text-xl sm:text-2xl font-black mt-2 text-white">{user?.fullName || 'Field Executive'}</h2>
             <p className="text-xs text-blue-200 mt-0.5">
-              Live financial ledger, payment receipts tracking & statutory reimbursements
+              Accumulated KM travel reimbursements, daily food allowance & sales volume bonuses
             </p>
           </div>
           
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleOpenSettlement(null)}
-              className="bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-slate-950 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-md transition-all"
+              onClick={handleOpenReimbursementModal}
+              className="bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-600 hover:to-teal-500 active:scale-95 text-slate-950 font-black px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 shadow-lg transition-all"
             >
-              <PlusCircle size={15} /> Record Settlement
+              <Wallet size={15} /> Record Settlement (KM & Fooding)
             </button>
             <button
               onClick={fetchIncentivesAndData}
               className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-colors text-white"
-              title="Refresh P&I Calculations"
+              title="Refresh Calculations"
             >
               <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -334,40 +307,40 @@ export default function IncentivesDashboard({ user }) {
         {/* PRIMARY FINANCIAL METRICS */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-white/10">
           <div className="bg-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
-            <p className="text-[10px] uppercase font-bold text-blue-200">Receipts Today</p>
-            <p className="text-lg sm:text-xl font-black mt-0.5 text-emerald-300">
-              ₹{totalCollectedToday.toLocaleString('en-IN')}
+            <p className="text-[10px] uppercase font-bold text-blue-200">Unclaimed Reimbursement</p>
+            <p className="text-lg sm:text-xl font-black mt-0.5 text-emerald-300 font-mono">
+              ₹{shiftStats.unclaimedBalance.toLocaleString('en-IN')}
             </p>
           </div>
           <div className="bg-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
-            <p className="text-[10px] uppercase font-bold text-blue-200">Receipts This Month</p>
-            <p className="text-lg sm:text-xl font-black mt-0.5 text-white">
-              ₹{totalCollectedMonth.toLocaleString('en-IN')}
+            <p className="text-[10px] uppercase font-bold text-blue-200">Accumulated KM Payout</p>
+            <p className="text-lg sm:text-xl font-black mt-0.5 text-white font-mono">
+              ₹{shiftStats.earnedKMPayout.toLocaleString('en-IN')}
             </p>
           </div>
           <div className="bg-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
-            <p className="text-[10px] uppercase font-bold text-blue-200">Monthly Billing Issued</p>
-            <p className="text-lg sm:text-xl font-black mt-0.5 text-blue-200">
-              ₹{totalBilledMonth.toLocaleString('en-IN')}
+            <p className="text-[10px] uppercase font-bold text-blue-200">Food Allowance ({shiftStats.dutyDaysCount} Days)</p>
+            <p className="text-lg sm:text-xl font-black mt-0.5 text-blue-200 font-mono">
+              ₹{shiftStats.earnedFoodPayout.toLocaleString('en-IN')}
             </p>
           </div>
           <div className="bg-white/10 p-3.5 rounded-2xl backdrop-blur-xs">
-            <p className="text-[10px] uppercase font-bold text-blue-200">Product Incentives</p>
-            <p className="text-lg sm:text-xl font-black mt-0.5 text-amber-300">
+            <p className="text-[10px] uppercase font-bold text-blue-200">Sales Incentives</p>
+            <p className="text-lg sm:text-xl font-black mt-0.5 text-amber-300 font-mono">
               ₹{totalBagIncentivesMonth.toLocaleString('en-IN')}
             </p>
           </div>
         </div>
       </div>
 
-      {/* SECTION 1: KM & FOODING REIMBURSEMENTS */}
+      {/* SECTION 1: ACCUMULATED KM & FOODING REIMBURSEMENTS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* KM Travel Reimbursement */}
         <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <Navigation size={17} className="text-blue-600" />
-              KM Travel Reimbursement
+              Accumulated KM Travel Reimbursement
             </h3>
             <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-100">
               Rate: ₹{kmRate} / KM
@@ -376,18 +349,18 @@ export default function IncentivesDashboard({ user }) {
 
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between">
             <div>
-              <p className="text-xs text-slate-500 font-semibold">Total Verified Shift Distance</p>
-              <p className="text-xl font-black text-slate-900 mt-0.5">{totalKMsTravelled} KM</p>
+              <p className="text-xs text-slate-500 font-semibold">Total Verified Shift Travel</p>
+              <p className="text-xl font-black text-slate-900 mt-0.5">{shiftStats.totalKms} KM</p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-slate-500 font-semibold">Travel Payout</p>
-              <p className="text-xl font-black text-emerald-700 mt-0.5">
-                ₹{totalKMReimbursement.toLocaleString('en-IN')}
+              <p className="text-xs text-slate-500 font-semibold">Accumulated Travel Payout</p>
+              <p className="text-xl font-black text-emerald-700 font-mono mt-0.5">
+                ₹{shiftStats.earnedKMPayout.toLocaleString('en-IN')}
               </p>
             </div>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Calculated automatically from shift start/close verified odometer readings.
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Travel distance accumulates across shifts. You can collect your payout after 3 days or at your convenience.
           </p>
         </div>
 
@@ -395,8 +368,8 @@ export default function IncentivesDashboard({ user }) {
         <div className="bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-slate-200 space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <ShieldCheck size={17} className="text-emerald-600" />
-              Daily Fooding Allowance Entitlement
+              <Utensils size={17} className="text-emerald-600" />
+              Accumulated Daily Food Allowance
             </h3>
             <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-100">
               ₹{foodingAllowanceRate} / Duty Day
@@ -405,231 +378,96 @@ export default function IncentivesDashboard({ user }) {
 
           <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-100 flex items-center justify-between">
             <div>
-              <p className="text-xs text-slate-600 font-semibold">Active Shift Status</p>
-              <p className="text-sm font-black text-emerald-800 mt-0.5 flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                Eligible & Active
+              <p className="text-xs text-slate-600 font-semibold">Completed Duty Shifts</p>
+              <p className="text-xl font-black text-slate-900 mt-0.5">
+                {shiftStats.dutyDaysCount} Duty Days
               </p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-slate-600 font-semibold">Allowance Rate</p>
-              <p className="text-xl font-black text-emerald-900 mt-0.5">
-                ₹{foodingAllowanceRate}
+              <p className="text-xs text-slate-600 font-semibold">Accumulated Food Payout</p>
+              <p className="text-xl font-black text-emerald-900 font-mono mt-0.5">
+                ₹{shiftStats.earnedFoodPayout.toLocaleString('en-IN')}
               </p>
             </div>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Credited automatically into executive ledger upon end-of-day shift settlement.
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            Food allowance is allotted per duty shift and accumulates alongside your travel reimbursement.
           </p>
         </div>
       </div>
 
-      {/* SECTION 2: PAYMENT RECEIPTS & INSTRUMENT BREAKDOWN */}
+      {/* SECTION 2: SETTLEMENT HISTORY FOR EXECUTIVE REIMBURSEMENTS */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <Wallet size={18} className="text-blue-600" />
+            <History size={18} className="text-blue-600" />
             <div>
-              <h3 className="text-base font-bold text-slate-900">Payment Receipts Ledger Tracker</h3>
-              <p className="text-xs text-slate-500">Collected funds categorized by payment instrument</p>
+              <h3 className="text-base font-bold text-slate-900">Executive Reimbursement Settlement Records</h3>
+              <p className="text-xs text-slate-500">History of claimed KM travel and fooding allowance settlements</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-600">Month:</span>
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-2.5 py-1.5 text-xs font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <button
+            onClick={handleOpenReimbursementModal}
+            className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all flex items-center gap-1 self-start sm:self-auto"
+          >
+            <PlusCircle size={13} />
+            Claim New Settlement
+          </button>
         </div>
 
-        {/* INSTRUMENT TILES */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-          {Object.entries(instrumentBreakdown).map(([mode, amt]) => (
-            <div key={mode} className="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1">
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate" title={mode}>
-                {mode}
-              </p>
-              <p className="text-sm font-black text-slate-900 font-mono">
-                ₹{amt.toLocaleString('en-IN')}
-              </p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* SECTION 3: FIRM-WISE PAYMENT DUE & RECEIVED LEDGER */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-100">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Building2 size={18} className="text-blue-600" />
-              <span>Firm-Wise Payment Due & Received Ledger</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 font-bold border border-blue-100">
-                {filteredFirmLedger.length}
-              </span>
-            </h3>
-            <p className="text-xs text-slate-500">
-              Live tracking of Billed Amount, Total Collected, and Net Balance Due per firm
+        {reimbursementSettlements.length === 0 ? (
+          <div className="p-8 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-center space-y-2">
+            <Wallet size={24} className="mx-auto text-slate-400" />
+            <p className="text-xs font-bold text-slate-700">No reimbursement settlements claimed yet.</p>
+            <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+              Your accumulated balance is <strong className="text-emerald-700">₹{shiftStats.unclaimedBalance.toLocaleString('en-IN')}</strong>. Click "Record Settlement" to record a reimbursement payout.
             </p>
           </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:w-60">
-              <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search firm in ledger..."
-                value={ledgerSearch}
-                onChange={(e) => setLedgerSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* LEDGER TABLE */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                <th className="py-3 px-4">Firm / Client Name</th>
-                <th className="py-3 px-4">Billed Amount (₹)</th>
-                <th className="py-3 px-4">Total Collected (₹)</th>
-                <th className="py-3 px-4">Net Balance Due (₹)</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredFirmLedger.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="text-center py-8 text-slate-400">
-                    No firm ledger records found matching your search.
-                  </td>
-                </tr>
-              ) : (
-                filteredFirmLedger.map((firm) => (
-                  <tr key={firm.firmId} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-3.5 px-4">
-                      <p className="font-bold text-slate-900 text-xs sm:text-sm">{firm.firmName}</p>
-                      <span className="text-[10px] font-mono text-slate-400">{firm.gstin}</span>
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-slate-800">
-                      ₹{firm.billedAmount.toLocaleString('en-IN')}
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-emerald-700">
-                      ₹{firm.totalCollected.toLocaleString('en-IN')}
-                    </td>
-                    <td className="py-3.5 px-4 font-black">
-                      <span className={firm.netBalanceDue > 0 ? 'text-rose-600 font-mono text-sm' : 'text-slate-400'}>
-                        ₹{firm.netBalanceDue.toLocaleString('en-IN')}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {firm.netBalanceDue === 0 ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                          <Check size={10} /> Fully Paid
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                          Pending Dues
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <button
-                        onClick={() => handleOpenSettlement(firm)}
-                        className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors border border-blue-200"
-                      >
-                        Settle Dues
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* SECTION 4: MONTHLY PAYMENT LEDGER REPORT */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <FileText size={18} className="text-blue-600" />
-              Monthly Payment Ledger Report
-            </h3>
-            <p className="text-xs text-slate-500">Summary of billing issued vs payments collected for {selectedMonth}</p>
-          </div>
-          <div className="text-right">
-            <span className="text-xs font-bold text-slate-600">Collection Efficiency: </span>
-            <span className="text-sm font-black text-emerald-700">
-              {totalBilledMonth > 0 ? `${Math.min(100, Math.round((totalCollectedMonth / totalBilledMonth) * 100))}%` : '100%'}
-            </span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-center">
-          <div>
-            <p className="text-[10px] uppercase font-bold text-slate-500">Total Month Invoices</p>
-            <p className="text-lg font-black text-slate-900 mt-0.5">₹{totalBilledMonth.toLocaleString('en-IN')}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold text-slate-500">Total Month Receipts</p>
-            <p className="text-lg font-black text-emerald-700 mt-0.5">₹{totalCollectedMonth.toLocaleString('en-IN')}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase font-bold text-slate-500">Uncollected Balance</p>
-            <p className="text-lg font-black text-rose-600 mt-0.5">
-              ₹{Math.max(0, totalBilledMonth - totalCollectedMonth).toLocaleString('en-IN')}
-            </p>
-          </div>
-        </div>
-
-        {/* Transactional Receipts Stream for Selected Month */}
-        <div className="space-y-2 pt-2">
-          <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Monthly Transactions & Receipts Stream ({monthVisits.length} Records)
-          </p>
-          {monthVisits.length === 0 ? (
-            <p className="text-xs text-slate-400 py-4 text-center">No transactions recorded for this month.</p>
-          ) : (
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {monthVisits.map((v) => (
-                <div
-                  key={v.id}
-                  className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-100 text-xs transition-colors"
-                >
-                  <div>
-                    <p className="font-bold text-slate-900">{v.firmName}</p>
-                    <p className="text-[10px] text-slate-500">
-                      {(v.paymentDate || v.timestamp || '').split('T')[0]} &bull; Mode: {v.paymentMode || 'Cash'} {v.txnId ? `(${v.txnId})` : ''}
-                    </p>
+        ) : (
+          <div className="space-y-2">
+            {reimbursementSettlements.map((item) => (
+              <div
+                key={item.id}
+                className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200/80 flex items-center justify-between gap-3 text-xs transition-colors"
+              >
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-slate-900">
+                      KM & Fooding Settlement
+                    </span>
+                    <span className="text-[10px] font-mono bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">
+                      {item.paymentMode || 'UPI'}
+                    </span>
                   </div>
-                  <div className="text-right">
-                    <p className="font-bold text-emerald-700">₹{(v.collectedAmount || 0).toLocaleString('en-IN')}</p>
-                    {v.orderValue > 0 && (
-                      <p className="text-[10px] text-slate-400">Order: ₹{v.orderValue.toLocaleString('en-IN')}</p>
-                    )}
-                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Date: {item.date} {item.txnId && `• Ref: ${item.txnId}`} {item.notes && `• "${item.notes}"`}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+
+                <div className="text-right shrink-0">
+                  <span className="text-sm font-black text-emerald-700 font-mono">
+                    +₹{parseFloat(item.amount).toLocaleString('en-IN')}
+                  </span>
+                  <span className="block text-[10px] text-slate-400 font-semibold">Settled</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* SECTION 5: PRODUCT INCENTIVES MATRIX */}
+      {/* SECTION 3: PRODUCT INCENTIVES MATRIX */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-          <ShoppingBag className="text-blue-600" size={18} />
-          Product Volume Incentive Rates
-        </h3>
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <ShoppingBag className="text-blue-600" size={18} />
+            Product Volume Incentive Rates
+          </h3>
+          <span className="text-xs font-bold text-slate-500">
+            Monthly Earned: <span className="text-emerald-700 font-bold">₹{totalBagIncentivesMonth.toLocaleString('en-IN')}</span> ({totalOrdersCountMonth} Orders)
+          </span>
+        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {productMatrix.map((item) => (
@@ -644,77 +482,80 @@ export default function IncentivesDashboard({ user }) {
         </div>
       </div>
 
-      {/* SETTLEMENT ENTRY MODAL */}
-      {showSettlementModal && (
+      {/* EXECUTIVE REIMBURSEMENT SETTLEMENT MODAL */}
+      {showReimbursementModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
             <div className="p-6 bg-slate-900 text-white flex items-start justify-between">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                  Payment Collection Entry
+                  Executive Expense Reimbursement
                 </span>
-                <h3 className="text-lg font-black text-white mt-1">Record Settlement Against Due</h3>
+                <h3 className="text-lg font-black text-white mt-1">Record KM & Fooding Settlement</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Update firm payment ledger balance down to zero upon receipt
+                  Claim accumulated travel KMs (₹{kmRate}/KM) and daily food allowance
                 </p>
               </div>
               <button
-                onClick={() => setShowSettlementModal(false)}
+                onClick={() => setShowReimbursementModal(false)}
                 className="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleSettlementSubmit} className="p-6 space-y-4 text-xs">
-              {/* Firm Selection */}
-              <div>
-                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Firm / Client Name <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={settleFirmName}
-                  onChange={(e) => {
-                    const chosen = e.target.value;
-                    setSettleFirmName(chosen);
-                    const firmObj = firmLedgerList.find(f => f.firmName === chosen);
-                    if (firmObj && firmObj.netBalanceDue > 0) {
-                      setSettleAmount(firmObj.netBalanceDue.toString());
-                    }
-                  }}
-                  className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                  required
-                >
-                  <option value="">-- Select Onboarded Firm --</option>
-                  {firmLedgerList.map((f) => (
-                    <option key={f.firmId} value={f.firmName}>
-                      {f.firmName} (Due: ₹{f.netBalanceDue.toLocaleString('en-IN')})
-                    </option>
-                  ))}
-                </select>
+            <form onSubmit={handleReimbursementSubmit} className="p-6 space-y-4 text-xs">
+              {/* Accumulated Stats Breakdown */}
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-2">
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Accumulated Travel ({shiftStats.totalKms} KM @ ₹{kmRate}/KM):</span>
+                  <span className="font-bold font-mono text-slate-900">₹{shiftStats.earnedKMPayout.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-700">
+                  <span>Food Allowance ({shiftStats.dutyDaysCount} Days @ ₹{foodingAllowanceRate}/Day):</span>
+                  <span className="font-bold font-mono text-slate-900">₹{shiftStats.earnedFoodPayout.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1.5 border-t border-blue-200 font-bold text-slate-900">
+                  <span>Available Unclaimed Balance:</span>
+                  <span className="text-sm font-black text-emerald-700 font-mono">₹{shiftStats.unclaimedBalance.toLocaleString('en-IN')}</span>
+                </div>
               </div>
 
-              {/* Amount & Mode */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              {/* Settlement Amount */}
+              <div>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="font-bold text-slate-700 uppercase tracking-wider">
                     Settlement Amount (₹) <span className="text-rose-500">*</span>
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setClaimAmount(shiftStats.unclaimedBalance.toString())}
+                    className="text-[11px] font-bold text-blue-600 hover:underline"
+                  >
+                    Claim Full (₹{shiftStats.unclaimedBalance.toLocaleString('en-IN')})
+                  </button>
+                </div>
+                <div className="relative">
                   <input
                     type="number"
                     step="1"
                     min="1"
+                    max={shiftStats.unclaimedBalance || undefined}
                     placeholder="₹ 0.00"
-                    value={settleAmount}
-                    onChange={(e) => setSettleAmount(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 font-mono"
+                    value={claimAmount}
+                    onChange={(e) => setClaimAmount(e.target.value)}
+                    className="w-full pl-8 pr-4 py-2.5 text-sm font-black border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 text-slate-900 font-mono"
                     required
                   />
+                  <IndianRupee size={15} className="absolute left-2.5 top-3 text-slate-400" />
                 </div>
+              </div>
 
+              {/* Payment Mode & Date */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Payment Mode
+                    Settlement Mode
                   </label>
                   <select
                     value={settlePaymentMode}
@@ -722,20 +563,15 @@ export default function IncentivesDashboard({ user }) {
                     className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="Google Pay / UPI">Google Pay / UPI</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Cheque">Cheque</option>
-                    <option value="Fleet Cards">Fleet Cards</option>
-                    <option value="Smart Cards">Smart Cards</option>
-                    <option value="NEFT / NetBanking">NEFT / NetBanking</option>
+                    <option value="Cash">Cash Handover</option>
+                    <option value="Bank Transfer">Bank Transfer / NEFT</option>
+                    <option value="Cheque">Company Cheque</option>
                   </select>
                 </div>
-              </div>
 
-              {/* Date & Reference ID */}
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Collection Date
+                    Settlement Date
                   </label>
                   <input
                     type="date"
@@ -744,29 +580,30 @@ export default function IncentivesDashboard({ user }) {
                     className="w-full px-3 py-2.5 text-xs font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Txn ID / UTR / Cheque #
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. UTR-9982104"
-                    value={settleTxnId}
-                    onChange={(e) => setSettleTxnId(e.target.value)}
-                    className="w-full px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
+              {/* Reference ID */}
+              <div>
+                <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Txn Ref / Voucher No.
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. UTR-829103 or VCH-301"
+                  value={settleTxnId}
+                  onChange={(e) => setSettleTxnId(e.target.value)}
+                  className="w-full px-3 py-2.5 text-xs font-mono border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
+                />
               </div>
 
               {/* Notes */}
               <div>
                 <label className="block font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Settlement Notes / Remarks
+                  Settlement Remarks
                 </label>
                 <textarea
                   rows="2"
-                  placeholder="e.g. Full invoice clearance paid via Google Pay QR"
+                  placeholder="e.g. 3-day travel & food allowance reimbursement settlement"
                   value={settleNotes}
                   onChange={(e) => setSettleNotes(e.target.value)}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
@@ -777,7 +614,7 @@ export default function IncentivesDashboard({ user }) {
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowSettlementModal(false)}
+                  onClick={() => setShowReimbursementModal(false)}
                   className="w-1/3 py-3 border border-slate-300 rounded-xl font-bold text-slate-700 hover:bg-slate-50"
                 >
                   Cancel
@@ -788,7 +625,7 @@ export default function IncentivesDashboard({ user }) {
                   className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md flex items-center justify-center gap-2"
                 >
                   {settling ? <RefreshCw size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
-                  Record & Update Ledger
+                  Record Reimbursement Settlement
                 </button>
               </div>
             </form>

@@ -3,7 +3,7 @@ import {
   Store, PlusCircle, Search, MapPin, Phone, User, 
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
   Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee,
-  Navigation, Crosshair, Compass, ShieldCheck
+  Navigation, Crosshair, Compass, ShieldCheck, Trash2, Package
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
@@ -37,9 +37,21 @@ export default function FirmOnboarding({ user }) {
   const [gstin, setGstin] = useState('');
   const [address, setAddress] = useState('');
   const [brandsHandled, setBrandsHandled] = useState('Tata Tiscon, UltraTech, ACC');
-  const [purchasePrice, setPurchasePrice] = useState('320');
-  const [retailPrice, setRetailPrice] = useState('350');
-  const [wholesalePrice, setWholesalePrice] = useState('335');
+
+  // MULTIPLE PRODUCTS SOLD BY DEALER WITH 4 PRICE TIERS
+  // Purchase Price, FOR Price, Wholesale Price, Retail Price
+  const [dealerProducts, setDealerProducts] = useState([
+    {
+      id: 'prod_1',
+      productName: 'Cement (UltraTech / ACC)',
+      unit: 'Bags',
+      purchasePrice: '320',
+      forPrice: '330',
+      wholesalePrice: '335',
+      retailPrice: '350'
+    }
+  ]);
+
   const [photo, setPhoto] = useState('');
   const [photoPreview, setPhotoPreview] = useState('');
 
@@ -114,6 +126,47 @@ export default function FirmOnboarding({ user }) {
     }
   };
 
+  // Multiple Product Management
+  const handleAddDealerProduct = () => {
+    setDealerProducts(prev => [
+      ...prev,
+      {
+        id: 'prod_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        productName: '',
+        unit: 'Bags',
+        purchasePrice: '',
+        forPrice: '',
+        wholesalePrice: '',
+        retailPrice: ''
+      }
+    ]);
+  };
+
+  const handleRemoveDealerProduct = (id) => {
+    if (dealerProducts.length <= 1) {
+      setDealerProducts([
+        {
+          id: 'prod_1',
+          productName: '',
+          unit: 'Bags',
+          purchasePrice: '',
+          forPrice: '',
+          wholesalePrice: '',
+          retailPrice: ''
+        }
+      ]);
+      return;
+    }
+    setDealerProducts(prev => prev.filter(p => p.id !== id));
+  };
+
+  const handleUpdateDealerProduct = (id, field, value) => {
+    setDealerProducts(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      return { ...p, [field]: value };
+    }));
+  };
+
   const handlePhotoUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -142,6 +195,9 @@ export default function FirmOnboarding({ user }) {
     const newFirmId = 'firm_' + Date.now();
     const nowISO = new Date().toISOString();
 
+    const validProducts = dealerProducts.filter(p => p.productName.trim() !== '');
+    const firstProduct = validProducts[0] || dealerProducts[0];
+
     const newFirmObj = {
       id: newFirmId,
       exec_id: user?.userId || user?.user_id,
@@ -151,10 +207,12 @@ export default function FirmOnboarding({ user }) {
       gstin: gstin.trim() ? gstin.trim().toUpperCase() : 'URP-' + Math.floor(100000 + Math.random() * 900000),
       address: address.trim() || 'General Market Area, Ranchi',
       brands_handled: brandsHandled.trim(),
+      products: validProducts.length > 0 ? validProducts : dealerProducts,
       prices: {
-        purchase: parseFloat(purchasePrice) || 0,
-        retail: parseFloat(retailPrice) || 0,
-        wholesale: parseFloat(wholesalePrice) || 0
+        purchase: parseFloat(firstProduct?.purchasePrice) || 0,
+        forPrice: parseFloat(firstProduct?.forPrice) || 0,
+        retail: parseFloat(firstProduct?.retailPrice) || 0,
+        wholesale: parseFloat(firstProduct?.wholesalePrice) || 0
       },
       location: {
         lat: gpsCoords.lat,
@@ -190,6 +248,17 @@ export default function FirmOnboarding({ user }) {
       setAddress('');
       setPhoto('');
       setPhotoPreview('');
+      setDealerProducts([
+        {
+          id: 'prod_1',
+          productName: 'Cement (UltraTech / ACC)',
+          unit: 'Bags',
+          purchasePrice: '320',
+          forPrice: '330',
+          wholesalePrice: '335',
+          retailPrice: '350'
+        }
+      ]);
       setLoading(false);
       setTimeout(() => setSuccessMsg(''), 4000);
     }
@@ -247,8 +316,7 @@ export default function FirmOnboarding({ user }) {
         </div>
       )}
 
-      {/* ONBOARD NEW FIRM FORM (ADMIN ONLY) */}
-      {user?.role === 'ADMIN' ? (
+      {/* ONBOARD NEW FIRM FORM (AVAILABLE TO ADMINS & EXECUTIVES) */}
       <div className="bg-white p-6 sm:p-7 rounded-2xl shadow-sm border border-slate-200">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100 mb-6">
           <div className="flex items-center gap-3">
@@ -256,29 +324,46 @@ export default function FirmOnboarding({ user }) {
               <PlusCircle size={22} />
             </div>
             <div>
-              <h2 className="text-lg sm:text-xl font-black text-slate-900">Onboard New Firm / Dealer</h2>
+              <h2 className="text-lg sm:text-xl font-black text-slate-900">New Dealer & Firm Onboarding</h2>
               <p className="text-xs text-slate-500">
-                Register Sundaram Mahadeo Group entities, dealers, and hardware establishments
+                Register dealer details, GPS location baseline, and product price cards
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => {
-              setName('SMST - Sundaram Mahadeo Steels (Reference Unit)');
-              setContactPerson('Rajesh Sharma (Manager)');
-              setPhone('9876543210');
-              setGstin('20AABCS1234F1Z1');
-              setAddress('Industrial Hub, Plot 42, Kokar, Ranchi');
+              setName('Gupta Hardware & Builders');
+              setContactPerson('Manoj Gupta');
+              setPhone('9835102938');
+              setGstin('20AABCG8920K1Z4');
+              setAddress('Bariatu Road, Opp Hospital, Ranchi');
               setBrandsHandled('Tata Tiscon, UltraTech Super, ACC Gold');
-              setPurchasePrice('325');
-              setRetailPrice('360');
-              setWholesalePrice('340');
+              setDealerProducts([
+                {
+                  id: 'p1',
+                  productName: 'Cement (UltraTech / ACC)',
+                  unit: 'Bags',
+                  purchasePrice: '320',
+                  forPrice: '330',
+                  wholesalePrice: '338',
+                  retailPrice: '355'
+                },
+                {
+                  id: 'p2',
+                  productName: 'TMT Rebar (Fe 550D)',
+                  unit: 'MT',
+                  purchasePrice: '52000',
+                  forPrice: '53500',
+                  wholesalePrice: '54200',
+                  retailPrice: '56000'
+                }
+              ]);
             }}
             className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 transition-all flex items-center gap-1.5 self-start sm:self-auto"
           >
             <Tag size={13} />
-            Fill Reference Store (Test Data)
+            Fill Reference Dealer (Sample)
           </button>
         </div>
 
@@ -290,7 +375,7 @@ export default function FirmOnboarding({ user }) {
               </label>
               <input
                 type="text"
-                placeholder="e.g. SMST - Sundaram Mahadeo Steels & Traders"
+                placeholder="e.g. Gupta Hardware / Agarwal Steels"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full px-4 py-3 text-sm font-semibold border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
@@ -319,7 +404,7 @@ export default function FirmOnboarding({ user }) {
               </label>
               <input
                 type="text"
-                placeholder="e.g. Anand Sundaram"
+                placeholder="e.g. Manoj Gupta"
                 value={contactPerson}
                 onChange={(e) => setContactPerson(e.target.value)}
                 className="w-full px-4 py-3 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
@@ -443,24 +528,139 @@ export default function FirmOnboarding({ user }) {
                 </div>
               </div>
             </div>
-
-            <p className="text-[11px] text-emerald-800/90 bg-emerald-100/50 p-2.5 rounded-xl flex items-center gap-2 border border-emerald-200/50">
-              <CheckCircle2 size={14} className="text-emerald-700 shrink-0" />
-              <span>
-                <strong>Automatic Geofencing Enabled:</strong> When field executives log sales or payment collections at this firm, the system will automatically cross-check their live GPS against these coordinates ({gpsCoords.lat}, {gpsCoords.lng}).
-              </span>
-            </p>
           </div>
 
-          {/* Brands & Pricing Intelligence */}
-          <div className="bg-slate-50/80 p-5 rounded-2xl border border-slate-200 space-y-4">
-            <p className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Tag size={15} className="text-blue-600" /> Market Pricing & Brand Intelligence
-            </p>
+          {/* ========================================================================= */}
+          {/* DEALER PRODUCTS & 4 PRICE TIERS (Purchase, FOR, Wholesale, Retail)        */}
+          {/* ========================================================================= */}
+          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-blue-600 text-white rounded-lg">
+                  <Package size={16} />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Products Sold by Firm & Rate Card
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Add multiple products with Purchase, FOR, Wholesale, and Retail price benchmarks
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAddDealerProduct}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1"
+              >
+                <PlusCircle size={13} />
+                Add Product
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {dealerProducts.map((p, idx) => (
+                <div key={p.id} className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                      Product #{idx + 1}
+                    </span>
+                    {dealerProducts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDealerProduct(p.id)}
+                        className="text-rose-500 hover:bg-rose-50 p-1 rounded-lg transition-colors"
+                        title="Remove Product"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
+                    {/* Product Name */}
+                    <div className="sm:col-span-2 md:col-span-2">
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Product Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Cement (UltraTech) or TMT 12mm"
+                        value={p.productName}
+                        onChange={(e) => handleUpdateDealerProduct(p.id, 'productName', e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    {/* Purchase Price */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Purchase (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₹ 320"
+                        value={p.purchasePrice}
+                        onChange={(e) => handleUpdateDealerProduct(p.id, 'purchasePrice', e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
+                      />
+                    </div>
+
+                    {/* FOR Price */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        FOR Price (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₹ 330"
+                        value={p.forPrice}
+                        onChange={(e) => handleUpdateDealerProduct(p.id, 'forPrice', e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
+                      />
+                    </div>
+
+                    {/* Wholesale Price */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Wholesale (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₹ 335"
+                        value={p.wholesalePrice}
+                        onChange={(e) => handleUpdateDealerProduct(p.id, 'wholesalePrice', e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
+                      />
+                    </div>
+
+                    {/* Retail Price */}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1">
+                        Retail Price (₹)
+                      </label>
+                      <input
+                        type="number"
+                        step="any"
+                        placeholder="₹ 350"
+                        value={p.retailPrice}
+                        onChange={(e) => handleUpdateDealerProduct(p.id, 'retailPrice', e.target.value)}
+                        className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
 
             <div>
               <label className="block text-[11px] font-bold text-slate-600 mb-1.5">
-                Brands Handled / Stocked
+                Key Brands Handled
               </label>
               <input
                 type="text"
@@ -469,36 +669,6 @@ export default function FirmOnboarding({ user }) {
                 onChange={(e) => setBrandsHandled(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Purchase (₹/Unit)</label>
-                <input
-                  type="number"
-                  value={purchasePrice}
-                  onChange={(e) => setPurchasePrice(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Retail (₹/Unit)</label>
-                <input
-                  type="number"
-                  value={retailPrice}
-                  onChange={(e) => setRetailPrice(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Wholesale (₹/Unit)</label>
-                <input
-                  type="number"
-                  value={wholesalePrice}
-                  onChange={(e) => setWholesalePrice(e.target.value)}
-                  className="w-full px-3 py-2 text-sm font-semibold border border-slate-300 rounded-lg bg-white"
-                />
-              </div>
             </div>
           </div>
 
@@ -545,24 +715,6 @@ export default function FirmOnboarding({ user }) {
           </button>
         </form>
       </div>
-      ) : (
-        <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-sm border border-slate-800 flex items-start gap-4">
-          <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-2xl flex items-center justify-center shrink-0">
-            <ShieldCheck size={24} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase rounded tracking-wider border border-amber-500/30">
-                Admin Exclusive Control
-              </span>
-            </div>
-            <h3 className="text-base font-bold text-white mt-1">Authorized Dealership Directory & Pricing Catalog</h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Adding new firms, editing dealer master records, and firm deletion are restricted to Administrator accounts. Field executives can browse authorized dealer records, verify dealer pricing, and view lifting history below.
-            </p>
-          </div>
-        </div>
-      )}
 
       {/* SEARCHABLE FIRM DIRECTORY */}
       <div className="space-y-4">
@@ -575,7 +727,7 @@ export default function FirmOnboarding({ user }) {
               </span>
             </h3>
             <p className="text-xs text-slate-500">
-              Searchable catalog with shop GPS coordinates, pricing, and single-date lifting histories
+              Searchable catalog with shop GPS coordinates, product rate cards, and single-date lifting histories
             </p>
           </div>
 
@@ -615,6 +767,9 @@ export default function FirmOnboarding({ user }) {
               const lat = firm.location?.lat || 23.3441;
               const lng = firm.location?.lng || 85.3096;
               const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+              const firmProds = Array.isArray(firm.products) && firm.products.length > 0 
+                ? firm.products 
+                : null;
 
               return (
                 <div
@@ -662,20 +817,30 @@ export default function FirmOnboarding({ user }) {
                     </a>
                   </div>
 
-                  {firm.brands_handled && (
-                    <p className="text-xs text-slate-600">
-                      <span className="font-bold text-slate-700">Brands:</span> {firm.brands_handled}
-                    </p>
-                  )}
-
-                  {/* Brand Pricing Intel */}
-                  {firm.prices && (
+                  {/* Products & Rate Card */}
+                  {firmProds ? (
+                    <div className="space-y-1.5 bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs">
+                      <p className="text-[10px] font-bold uppercase text-slate-500">Products & Price Tiers:</p>
+                      {firmProds.map((fp, fidx) => (
+                        <div key={fidx} className="border-b border-slate-200 pb-1.5 last:border-0 last:pb-0">
+                          <div className="font-bold text-slate-800">{fp.productName}</div>
+                          <div className="grid grid-cols-4 gap-1 text-[10px] text-slate-600 mt-0.5">
+                            <span>Pur: ₹{fp.purchasePrice || 0}</span>
+                            <span>FOR: ₹{fp.forPrice || 0}</span>
+                            <span>Whsl: ₹{fp.wholesalePrice || 0}</span>
+                            <span>Ret: ₹{fp.retailPrice || 0}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : firm.prices ? (
                     <div className="bg-slate-50 p-2.5 rounded-xl flex justify-between text-[11px] text-slate-700 font-semibold border border-slate-100">
                       <span>Pur: ₹{firm.prices.purchase || 0}</span>
+                      <span>FOR: ₹{firm.prices.forPrice || 0}</span>
                       <span>Ret: ₹{firm.prices.retail || 0}</span>
-                      <span>Wholesale: ₹{firm.prices.wholesale || 0}</span>
+                      <span>Whsl: ₹{firm.prices.wholesale || 0}</span>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* CUSTOM SINGLE-DATE LIFTING HISTORY BUTTON */}
                   <div className="pt-2 border-t border-slate-100">

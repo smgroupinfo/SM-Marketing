@@ -66,11 +66,12 @@ const fallbackCache = {
   }
 };
 
-// Seed default Admin Account in local fallback & sync with Supabase
+// Seed default Admin & Executive Assistant Accounts in local fallback & sync with Supabase
 (async () => {
   try {
     const salt = await bcrypt.genSalt(10);
     const adminHash = await bcrypt.hash('admin123', salt);
+    const assistantHash = await bcrypt.hash('assistant123', salt);
 
     const defaultAdmin = {
       id: 'admin-0000-0000-0000-000000000001',
@@ -84,23 +85,50 @@ const fallbackCache = {
       current_address: 'HQ Central Office, Sundaram Mahadeo Group',
       supervisor: ''
     };
+
+    const defaultAssistant = {
+      id: 'ea-0000-0000-0000-000000000001',
+      user_id: 'ea-0000-0000-0000-000000000001',
+      full_name: 'Executive Assistant (Audit)',
+      phone_number: '9435188999',
+      email: 'assistant@sundarammahadeogroup.com',
+      password_hash: assistantHash,
+      role: 'EXECUTIVE_ASSISTANT',
+      status: 'APPROVED',
+      current_address: 'Central Audit Office, Sundaram Mahadeo Group',
+      supervisor: 'Sundaram Mahadeo Admin'
+    };
+
     fallbackCache.users.push(defaultAdmin);
+    fallbackCache.users.push(defaultAssistant);
 
     // Clean start for Firms Directory (user will onboard firms)
     fallbackCache.firms = [];
 
     if (supabase) {
-      // Upsert admin to Supabase with valid hash
-      await supabase.from('users').upsert([{
-        id: 'admin-0000-0000-0000-000000000001',
-        full_name: 'Sundaram Mahadeo Admin',
-        phone_number: '9435188967',
-        email: 'admin@sundarammahadeogroup.com',
-        password_hash: adminHash,
-        role: 'ADMIN',
-        status: 'APPROVED',
-        current_address: 'HQ Central Office, Sundaram Mahadeo Group'
-      }], { onConflict: 'phone_number' }).catch(e => console.warn('Supabase admin sync exception:', e.message));
+      // Upsert admin and assistant to Supabase
+      await supabase.from('users').upsert([
+        {
+          id: 'admin-0000-0000-0000-000000000001',
+          full_name: 'Sundaram Mahadeo Admin',
+          phone_number: '9435188967',
+          email: 'admin@sundarammahadeogroup.com',
+          password_hash: adminHash,
+          role: 'ADMIN',
+          status: 'APPROVED',
+          current_address: 'HQ Central Office, Sundaram Mahadeo Group'
+        },
+        {
+          id: 'ea-0000-0000-0000-000000000001',
+          full_name: 'Executive Assistant (Audit)',
+          phone_number: '9435188999',
+          email: 'assistant@sundarammahadeogroup.com',
+          password_hash: assistantHash,
+          role: 'EXECUTIVE_ASSISTANT',
+          status: 'APPROVED',
+          current_address: 'Central Audit Office, Sundaram Mahadeo Group'
+        }
+      ], { onConflict: 'phone_number' }).catch(e => console.warn('Supabase admin/ea sync exception:', e.message));
     }
   } catch (err) {
     console.warn('Admin & fallback seed initialization warning:', err.message);
@@ -2305,7 +2333,9 @@ app.get('/api/admin/dashboard', authenticateToken, async (req, res) => {
 // ==============================================================================
 
 app.get('/api/admin/users', authenticateToken, async (req, res) => {
-  if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
+  if (req.user.role !== 'ADMIN' && req.user.role !== 'EXECUTIVE_ASSISTANT') {
+    return res.status(403).json({ error: 'Access Denied: Administrative or Executive Assistant clearance required.' });
+  }
   try {
     if (supabase) {
       const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });

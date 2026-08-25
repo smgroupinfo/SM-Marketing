@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
+import { sendMobilePushNotification } from '../lib/notificationEngine';
 
 export default function ShiftDashboard({ user }) {
   // Main shift status: 'OFF_DUTY' | 'STARTING' | 'ACTIVE' | 'CLOSING' | 'REVIEW'
@@ -158,6 +159,11 @@ export default function ShiftDashboard({ user }) {
       localStorage.setItem('activeShiftData', JSON.stringify(shiftResult));
 
       setSuccessMsg('Shift started successfully! GPS and Live tracking enabled.');
+      sendMobilePushNotification(
+        '🚀 Shift Started',
+        `Duty commenced at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Opening Odometer: ${odoNum} KM. GPS tracking active.`,
+        { type: 'success' }
+      );
       setOpeningOdometer('');
       setOpeningPhoto('');
       setOpeningPhotoPreview('');
@@ -275,6 +281,11 @@ export default function ShiftDashboard({ user }) {
       setClosingPhotoPreview('');
       setLoading(false);
       setSuccessMsg('Shift closed successfully! Daily performance and payout recorded.');
+      sendMobilePushNotification(
+        '🏁 Shift Closed & Settled',
+        `Shift closed at ${closePayload.endTime}. Total KMs: ${endOfDaySummary?.totalKms || 0} KM. Daily Payout: ₹${endOfDaySummary?.dailyIncentive || 0}.`,
+        { type: 'success' }
+      );
       setTimeout(() => setSuccessMsg(''), 5000);
     }
   };

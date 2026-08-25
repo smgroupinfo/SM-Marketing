@@ -4,9 +4,12 @@ import {
   IndianRupee, CheckCircle, RefreshCw, Layers, CreditCard, 
   Car, UserCheck, AlertCircle, Eye, FileSpreadsheet, Award,
   Clock, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2,
-  Building2, Phone, MapPin, Search, Star, ShieldCheck, ChevronRight, User
+  Building2, Phone, MapPin, Search, Star, ShieldCheck, ChevronRight, User,
+  Briefcase, Compass
 } from 'lucide-react';
 import { api } from '../lib/api';
+import FirmViewReports from './reports/FirmViewReports';
+import ExecutiveViewReports from './reports/ExecutiveViewReports';
 
 // Safe number & currency formatting utilities
 const formatINR = (val) => {
@@ -19,9 +22,23 @@ const formatNum = (val) => {
   return isNaN(num) ? '0' : num.toLocaleString('en-IN');
 };
 
-export default function AdminReports({ user, initialSubTab = 'overview' }) {
+export default function AdminReports({ user, initialSubTab = 'firm_view' }) {
+  const isExecutiveAssistant = user?.role === 'EXECUTIVE_ASSISTANT';
   const todayStr = new Date().toISOString().split('T')[0];
-  const [activeSubPage, setActiveSubPage] = useState(initialSubTab); // 'overview' | 'top_execs' | 'top_buyers' | 'timely_payments' | 'lowest_buyers' | 'slow_payments'
+  
+  // Categories: 'firm_view' | 'exec_view' | 'overview' | 'rankings'
+  const [mainCategory, setMainCategory] = useState(
+    ['firm_view', 'firms_onboarded'].includes(initialSubTab) ? 'firm_view' :
+    ['exec_view', 'top_execs'].includes(initialSubTab) ? 'exec_view' :
+    ['top_buyers', 'timely_payments', 'lowest_buyers', 'slow_payments'].includes(initialSubTab) ? 'rankings' :
+    'overview'
+  );
+  
+  const [activeSubPage, setActiveSubPage] = useState(
+    ['top_buyers', 'timely_payments', 'lowest_buyers', 'slow_payments'].includes(initialSubTab)
+      ? initialSubTab
+      : 'overview'
+  );
   
   const [rangePreset, setRangePreset] = useState('monthly'); // daily, weekly, monthly, custom
   const [startDate, setStartDate] = useState(
@@ -32,12 +49,24 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
   const [rankingSearch, setRankingSearch] = useState('');
   
   const [reportData, setReportData] = useState(null);
+  const [firms, setFirms] = useState([]);
+  const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (initialSubTab) {
-      setActiveSubPage(initialSubTab);
+      if (['firm_view', 'firms_onboarded'].includes(initialSubTab)) {
+        setMainCategory('firm_view');
+      } else if (['exec_view', 'top_execs'].includes(initialSubTab)) {
+        setMainCategory('exec_view');
+      } else if (['top_buyers', 'timely_payments', 'lowest_buyers', 'slow_payments'].includes(initialSubTab)) {
+        setMainCategory('rankings');
+        setActiveSubPage(initialSubTab);
+      } else if (initialSubTab === 'overview') {
+        setMainCategory('overview');
+        setActiveSubPage('overview');
+      }
     }
   }, [initialSubTab]);
 
@@ -72,10 +101,28 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
         executiveId,
         _t: Date.now()
       };
-      const res = await api.get('/admin/reports', { params });
-      if (res.data) {
-        // Ensure complete defensive structure
-        const d = res.data;
+      
+      const [reportsRes, firmsRes, visitsRes] = await Promise.allSettled([
+        api.get('/admin/reports', { params }),
+        api.get('/firms'),
+        api.get('/visits')
+      ]);
+
+      if (firmsRes.status === 'fulfilled' && firmsRes.value?.data) {
+        setFirms(Array.isArray(firmsRes.value.data) ? firmsRes.value.data : []);
+      } else {
+        const local = localStorage.getItem('smm_firms');
+        if (local) {
+          try { setFirms(JSON.parse(local)); } catch (e) {}
+        }
+      }
+
+      if (visitsRes.status === 'fulfilled' && visitsRes.value?.data) {
+        setVisits(Array.isArray(visitsRes.value.data) ? visitsRes.value.data : []);
+      }
+
+      if (reportsRes.status === 'fulfilled' && reportsRes.value?.data) {
+        const d = reportsRes.value.data;
         setReportData({
           ...d,
           kpis: {
@@ -288,6 +335,25 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
 
   return (
     <div className="space-y-6">
+      
+      {/* Executive Assistant Read-Only Access Banner */}
+      {isExecutiveAssistant && (
+        <div className="p-4 bg-indigo-50 border border-indigo-200 text-indigo-950 rounded-2xl text-xs flex items-center justify-between font-medium shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <ShieldCheck size={20} className="text-indigo-600 shrink-0" />
+            <div>
+              <span className="font-black text-indigo-900 text-sm">Executive Assistant Portal (Audit View Mode):</span>
+              <p className="text-indigo-700 text-xs mt-0.5">
+                Full comprehensive viewing access for all field executive reports, firm onboarding databases, sales logs, visit verifications, and financial collections. All edit, delete, and financial settlement actions are reserved for Group Administrators.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-indigo-200/80 text-indigo-900 text-[10px] font-black uppercase tracking-wider shrink-0 border border-indigo-300">
+            Read-Only Audit
+          </span>
+        </div>
+      )}
+
       {/* Header & Export Action */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <div>
@@ -295,7 +361,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
             <FileSpreadsheet className="text-blue-600" size={24} /> Financial Audit & Performance Reports
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Executive rankings, company order intelligence, payment turnaround audits, and overdue dues.
+            Sundaram Mahadeo Group multi-category reporting engine for executive accountability and firm analytics.
           </p>
         </div>
 
@@ -305,98 +371,126 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
             disabled={!reportData || exporting}
             className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 text-white font-bold text-sm rounded-xl shadow-sm transition-all active:scale-95 disabled:opacity-50"
           >
-            <Download size={16} /> {exporting ? 'Exporting...' : `Export ${activeSubPage === 'overview' ? 'Audit CSV' : 'Sub-Page CSV'}`}
+            <Download size={16} /> {exporting ? 'Exporting...' : `Export ${mainCategory.replace('_', ' ').toUpperCase()} CSV`}
           </button>
         </div>
       </div>
 
-      {/* Sub-Pages Navigation Tabs */}
-      <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-200">
+      {/* Main Categories Navigation Bar (Firm View / Executive View / Overview / Rankings) */}
+      <div className="bg-slate-900 p-2 rounded-2xl shadow-md border border-slate-800">
         <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
           <button
-            onClick={() => setActiveSubPage('overview')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'overview'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            onClick={() => setMainCategory('firm_view')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-black text-xs whitespace-nowrap transition-all ${
+              mainCategory === 'firm_view'
+                ? 'bg-blue-600 text-white shadow-md'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <Layers size={16} /> Audit Overview
+            <Building2 size={16} />
+            <span>Firm View (Onboarded, Sales, Visits, Payments)</span>
           </button>
 
           <button
-            onClick={() => setActiveSubPage('top_execs')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'top_execs'
-                ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            onClick={() => setMainCategory('exec_view')}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-black text-xs whitespace-nowrap transition-all ${
+              mainCategory === 'exec_view'
+                ? 'bg-purple-600 text-white shadow-md'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <Award size={16} /> Top Performers (Execs)
-            {reportData?.topPerformersExecs?.length > 0 && (
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'top_execs' ? 'bg-purple-800 text-white' : 'bg-purple-100 text-purple-800'}`}>
-                {reportData.topPerformersExecs.length}
-              </span>
-            )}
+            <Users size={16} />
+            <span>Executive View (Workforce Productivity & Leaderboards)</span>
           </button>
 
           <button
-            onClick={() => setActiveSubPage('top_buyers')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'top_buyers'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            onClick={() => { setMainCategory('overview'); setActiveSubPage('overview'); }}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-black text-xs whitespace-nowrap transition-all ${
+              mainCategory === 'overview'
+                ? 'bg-emerald-600 text-white shadow-md'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <TrendingUp size={16} /> Top 10 Buyers
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'top_buyers' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
-              Top 10
-            </span>
+            <Layers size={16} />
+            <span>Audit Overview (Financial KPIs & Ledgers)</span>
           </button>
 
           <button
-            onClick={() => setActiveSubPage('timely_payments')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'timely_payments'
-                ? 'bg-teal-600 text-white shadow-md shadow-teal-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+            onClick={() => { setMainCategory('rankings'); setActiveSubPage('top_buyers'); }}
+            className={`flex items-center gap-2 px-4 py-3 rounded-xl font-black text-xs whitespace-nowrap transition-all ${
+              mainCategory === 'rankings'
+                ? 'bg-amber-600 text-white shadow-md'
+                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
             }`}
           >
-            <Clock size={16} /> Timely Payment (Top 10)
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'timely_payments' ? 'bg-teal-800 text-white' : 'bg-teal-100 text-teal-800'}`}>
-              Order Turnaround
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubPage('lowest_buyers')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'lowest_buyers'
-                ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
-          >
-            <ArrowDownRight size={16} /> Lowest Purchasing (Top 10)
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'lowest_buyers' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-800'}`}>
-              Attention
-            </span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubPage('slow_payments')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-              activeSubPage === 'slow_payments'
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-            }`}
-          >
-            <AlertTriangle size={16} /> Slow Payment (Top 10)
-            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'slow_payments' ? 'bg-rose-800 text-white' : 'bg-rose-100 text-rose-800'}`}>
-              Overdue Risk
-            </span>
+            <Award size={16} />
+            <span>Rankings & Risk Analysis</span>
           </button>
         </div>
       </div>
+
+      {/* Sub-Pages Navigation Tabs (Only when Rankings is active) */}
+      {mainCategory === 'rankings' && (
+        <div className="bg-white p-2 rounded-2xl shadow-sm border border-gray-200">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 scrollbar-thin">
+            <button
+              onClick={() => setActiveSubPage('top_buyers')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
+                activeSubPage === 'top_buyers'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              <TrendingUp size={16} /> Top 10 Buyers
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'top_buyers' ? 'bg-emerald-800 text-white' : 'bg-emerald-100 text-emerald-800'}`}>
+                Top 10
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubPage('timely_payments')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
+                activeSubPage === 'timely_payments'
+                  ? 'bg-teal-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              <Clock size={16} /> Timely Payment (Top 10)
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'timely_payments' ? 'bg-teal-800 text-white' : 'bg-teal-100 text-teal-800'}`}>
+                Order Turnaround
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubPage('lowest_buyers')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
+                activeSubPage === 'lowest_buyers'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              <ArrowDownRight size={16} /> Lowest Purchasing (Top 10)
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'lowest_buyers' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-800'}`}>
+                Attention
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveSubPage('slow_payments')}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
+                activeSubPage === 'slow_payments'
+                  ? 'bg-rose-600 text-white shadow-md shadow-rose-500/20'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              <AlertTriangle size={16} /> Slow Payment (Top 10)
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${activeSubPage === 'slow_payments' ? 'bg-rose-800 text-white' : 'bg-rose-100 text-rose-800'}`}>
+                Overdue Risk
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Customizable Filters Bar */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
@@ -512,9 +606,32 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
       ) : (
         <>
           {/* ============================================================== */}
-          {/* SUB-PAGE 1: OVERVIEW & CONSOLIDATED FINANCIAL AUDIT */}
+          {/* MAIN CATEGORY 1: FIRM VIEW (ONBOARDED, SALES, VISITS, PAYMENTS) */}
           {/* ============================================================== */}
-          {activeSubPage === 'overview' && (
+          {mainCategory === 'firm_view' && (
+            <FirmViewReports 
+              firms={firms}
+              visits={visits}
+              reportData={reportData}
+              user={user}
+            />
+          )}
+
+          {/* ============================================================== */}
+          {/* MAIN CATEGORY 2: EXECUTIVE VIEW (PRODUCTIVITY & PERFORMANCE) */}
+          {/* ============================================================== */}
+          {mainCategory === 'exec_view' && (
+            <ExecutiveViewReports 
+              reportData={reportData}
+              visits={visits}
+              user={user}
+            />
+          )}
+
+          {/* ============================================================== */}
+          {/* MAIN CATEGORY 3 / SUB-PAGE 1: OVERVIEW & CONSOLIDATED FINANCIAL AUDIT */}
+          {/* ============================================================== */}
+          {mainCategory === 'overview' && activeSubPage === 'overview' && (
             <div className="space-y-6">
               {/* Top KPI Metrics Ribbon */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -844,7 +961,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
           {/* ============================================================== */}
           {/* SUB-PAGE 2: TOP PERFORMERS IN EXECUTIVES */}
           {/* ============================================================== */}
-          {activeSubPage === 'top_execs' && (
+          {mainCategory === 'rankings' && activeSubPage === 'top_execs' && (
             <div className="space-y-6">
               {/* Header card */}
               <div className="bg-gradient-to-r from-purple-900 to-indigo-900 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -963,7 +1080,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
           {/* ============================================================== */}
           {/* SUB-PAGE 3: TOP 10 COMPANIES THAT BUY FROM US */}
           {/* ============================================================== */}
-          {activeSubPage === 'top_buyers' && (
+          {mainCategory === 'rankings' && activeSubPage === 'top_buyers' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-emerald-900 to-teal-900 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
@@ -1065,7 +1182,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
           {/* ============================================================== */}
           {/* SUB-PAGE 4: TOP 10 TIMELY PAYMENT COMPANIES */}
           {/* ============================================================== */}
-          {activeSubPage === 'timely_payments' && (
+          {mainCategory === 'rankings' && activeSubPage === 'timely_payments' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-teal-900 to-cyan-950 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
@@ -1160,7 +1277,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
           {/* ============================================================== */}
           {/* SUB-PAGE 5: TOP 10 LOWEST PURCHASING COMPANIES */}
           {/* ============================================================== */}
-          {activeSubPage === 'lowest_buyers' && (
+          {mainCategory === 'rankings' && activeSubPage === 'lowest_buyers' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-amber-900 to-orange-950 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
@@ -1248,7 +1365,7 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
           {/* ============================================================== */}
           {/* SUB-PAGE 6: TOP 10 SLOW PAYMENT COMPANIES */}
           {/* ============================================================== */}
-          {activeSubPage === 'slow_payments' && (
+          {mainCategory === 'rankings' && activeSubPage === 'slow_payments' && (
             <div className="space-y-6">
               <div className="bg-gradient-to-r from-rose-900 to-red-950 p-6 rounded-2xl text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>

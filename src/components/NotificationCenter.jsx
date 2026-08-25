@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Bell, CheckCheck, Send, AlertCircle, RefreshCw, 
-  Sparkles, X, MessageSquare, Clock, Shield, User, Filter
+  Sparkles, X, MessageSquare, Clock, Shield, User, Filter, Volume2, Play
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { sendMobilePushNotification, triggerTestNotification } from '../lib/notificationEngine';
 
 export default function NotificationCenter({ user, isOpen, onClose, onCountUpdated }) {
   const [notifications, setNotifications] = useState([]);
@@ -73,6 +74,12 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
         message: broadcastMessage,
         type: 'BROADCAST',
         targetUserId: broadcastTarget
+      });
+      // Trigger instant mobile push, sound chime & vibration
+      sendMobilePushNotification(broadcastTitle, broadcastMessage, {
+        type: 'broadcast',
+        sound: true,
+        vibrate: true
       });
       setBroadcastSuccess('Broadcast notification dispatched successfully.');
       setBroadcastTitle('');
@@ -169,13 +176,23 @@ export default function NotificationCenter({ user, isOpen, onClose, onCountUpdat
             </button>
           </div>
 
-          <button
-            onClick={fetchNotifications}
-            title="Refresh"
-            className="p-1 text-slate-500 hover:text-slate-900 rounded shrink-0"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => triggerTestNotification('Test dispatch alert from SMM Notification Center.')}
+              title="Test Mobile Push Notification with Audio Chime"
+              className="px-2 py-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shrink-0"
+            >
+              <Volume2 size={12} />
+              <span>Test Push</span>
+            </button>
+            <button
+              onClick={fetchNotifications}
+              title="Refresh"
+              className="p-1 text-slate-500 hover:text-slate-900 rounded shrink-0"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </div>
 
         {/* Admin Broadcast Banner Action */}

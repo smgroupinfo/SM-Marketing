@@ -10,6 +10,8 @@ import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
 
 export default function AdminFirmDirectory({ user }) {
+  const isExecutiveAssistant = user && user.role === 'EXECUTIVE_ASSISTANT';
+
   // Navigation tabs within Firm Directory
   const [activeTab, setActiveTab] = useState('directory'); // 'directory' | 'onboard' | 'sales_orders' | 'collections' | 'ledger'
 
@@ -638,18 +640,27 @@ export default function AdminFirmDirectory({ user }) {
           <span>Payment Collections ({paymentCollections.length})</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab('onboard')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
-            activeTab === 'onboard' 
-              ? 'bg-white text-purple-700 shadow-sm' 
-              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-          }`}
-        >
-          <PlusCircle size={15} />
-          <span>+ Onboard New Firm</span>
-        </button>
+        {!isExecutiveAssistant && (
+          <button
+            onClick={() => setActiveTab('onboard')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all whitespace-nowrap ${
+              activeTab === 'onboard' 
+                ? 'bg-white text-purple-700 shadow-sm' 
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
+            }`}
+          >
+            <PlusCircle size={15} />
+            <span>+ Onboard New Firm</span>
+          </button>
+        )}
       </div>
+
+      {isExecutiveAssistant && (
+        <div className="p-3.5 bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-2xl text-xs flex items-center gap-2 font-medium">
+          <ShieldCheck size={16} className="text-indigo-600 shrink-0" />
+          <span>Executive Assistant View: You have complete read-only visibility into dealer records, financial ledgers, and lifting logs. Firm creation and financial settlement edits are restricted to Administrators.</span>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: FIRMS DIRECTORY CATALOG                                            */}
@@ -803,31 +814,36 @@ export default function AdminFirmDirectory({ user }) {
                         title="View single-date lifting ledger"
                       >
                         <History size={13} />
-                        Lifting
+                        Lifting History
                       </button>
-                      <button
-                        onClick={() => setSettlementModalFirm(firm)}
-                        className="flex-1 min-w-[100px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold py-2 px-2 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-emerald-200"
-                        title="Record dues settlement"
-                      >
-                        <CreditCard size={13} />
-                        Settle
-                      </button>
-                      <button
-                        onClick={() => handleOpenEdit(firm)}
-                        className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold py-2 px-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-amber-200"
-                        title="Admin Edit Firm Details & Pricing"
-                      >
-                        <Edit3 size={13} />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => setDeletingFirm(firm)}
-                        className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-rose-200"
-                        title="Admin Delete Firm"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+
+                      {!isExecutiveAssistant && (
+                        <>
+                          <button
+                            onClick={() => setSettlementModalFirm(firm)}
+                            className="flex-1 min-w-[100px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold py-2 px-2 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-emerald-200"
+                            title="Record dues settlement"
+                          >
+                            <CreditCard size={13} />
+                            Settle
+                          </button>
+                          <button
+                            onClick={() => handleOpenEdit(firm)}
+                            className="bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold py-2 px-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-amber-200"
+                            title="Admin Edit Firm Details & Pricing"
+                          >
+                            <Edit3 size={13} />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => setDeletingFirm(firm)}
+                            className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-2.5 rounded-xl transition-all text-xs flex items-center justify-center gap-1 border border-rose-200"
+                            title="Admin Delete Firm"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
