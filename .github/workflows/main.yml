@@ -50,6 +50,73 @@ jobs:
           npx cap add android || true
           npx cap sync android
 
+      - name: Inject Android Permissions into AndroidManifest.xml
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ -f "$MANIFEST" ]; then
+            echo "Injecting Android hardware and system permissions into $MANIFEST..."
+            
+            # Remove any existing permissions to avoid duplicates
+            sed -i '/<uses-permission/d' "$MANIFEST"
+            sed -i '/<uses-feature/d' "$MANIFEST"
+            
+            # Prepare permissions and features block
+            PERMISSIONS_BLOCK=$(cat <<'EOF'
+    <!-- Network & Connectivity -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- Location Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
+
+    <!-- Camera Permissions -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Audio / Microphone Permissions -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Notifications (Android 13+ / API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Vibration & Hardware Feedback -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Storage (Legacy / Media Fallbacks) -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+EOF
+)
+            
+            # Insert permissions block right after the opening <manifest ...> tag
+            node -e "
+              const fs = require('fs');
+              let content = fs.readFileSync('$MANIFEST', 'utf8');
+              const manifestTagRegex = /<manifest\b[^>]*>/;
+              const permissions = \`\n$PERMISSIONS_BLOCK\n\`;
+              if (manifestTagRegex.test(content)) {
+                content = content.replace(manifestTagRegex, (match) => match + permissions);
+                fs.writeFileSync('$MANIFEST', content, 'utf8');
+                console.log('Successfully updated AndroidManifest.xml with all hardware permissions.');
+              } else {
+                console.error('Could not locate <manifest> tag in $MANIFEST');
+              }
+            "
+          else
+            echo "Error: $MANIFEST not found!"
+            exit 1
+          fi
+
       - name: Setup Java JDK 21
         uses: actions/setup-java@v4
         with:
