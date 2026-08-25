@@ -47,42 +47,10 @@ export const SEED_ADMIN = {
 };
 
 export const SEED_USERS = [
-  SEED_ADMIN,
-  {
-    id: 'exec-0001',
-    user_id: 'exec-0001',
-    full_name: 'Rajesh Kumar',
-    phone_number: '9876543210',
-    email: 'rajesh.kumar@sundarammahadeogroup.com',
-    password_hash: '$2a$10$Y148lZ4mF7gQoGf6eU5A5.oF5P6J5K4L3M2N1O0P9Q8R7S6T5U4V3', // exec123
-    role: 'EXECUTIVE',
-    status: 'APPROVED',
-    current_address: 'Ranchi Central Territory, Jharkhand',
-    supervisor: 'HQ Admin'
-  },
-  {
-    id: 'exec-0002',
-    user_id: 'exec-0002',
-    full_name: 'Amit Sharma',
-    phone_number: '9876543211',
-    email: 'amit.sharma@sundarammahadeogroup.com',
-    password_hash: '$2a$10$Y148lZ4mF7gQoGf6eU5A5.oF5P6J5K4L3M2N1O0P9Q8R7S6T5U4V3',
-    role: 'EXECUTIVE',
-    status: 'APPROVED',
-    current_address: 'Dhanbad & Bokaro Circle, Jharkhand',
-    supervisor: 'HQ Admin'
-  }
+  SEED_ADMIN
 ];
 
-export const SEED_FIRMS = [
-  { id: 'f-smst', name: 'SMST - Sundaram Mahadeo Steels & Traders', gstin: '20AAACS1234F1Z1', address: 'Ranchi Industrial Area', phone: '9431102910', contactPerson: 'Arun Agarwal', brands_handled: 'Tata Tiscon, Jindal Panther', prices: { purchase: 52000, retail: 56000, wholesale: 54000 }, location: { lat: 23.3641, lng: 85.3296 } },
-  { id: 'f-smbnc', name: 'SMBNC - Sundaram Mahadeo Buildcon & Cement', gstin: '20AAACS5678G2Z2', address: 'Bariatu Road, Ranchi', phone: '9431102911', contactPerson: 'Vikas Sundaram', brands_handled: 'UltraTech, ACC Cement', prices: { purchase: 330, retail: 370, wholesale: 345 }, location: { lat: 23.3841, lng: 85.3496 } },
-  { id: 'f-smgh', name: 'SMGH - Sundaram Mahadeo Grand Hardware', gstin: '20AAACS9012H3Z3', address: 'Main Road Commercial Plaza, Ranchi', phone: '9431102912', contactPerson: 'Ramesh Mahadeo', brands_handled: 'Supreme Pipes, Astral, Asian Paints', prices: { purchase: 450, retail: 520, wholesale: 480 }, location: { lat: 23.3441, lng: 85.3196 } },
-  { id: 'f-pss', name: 'PSS - Pragati Steel & Sanitations', gstin: '20AAACS3456J4Z4', address: 'Namkum Industrial Corridor', phone: '9431102913', contactPerson: 'Sanjay Pragati', brands_handled: 'SAIL, Tata Tiscon, Hindware', prices: { purchase: 51500, retail: 55000, wholesale: 53000 }, location: { lat: 23.3241, lng: 85.3796 } },
-  { id: 'f-smm', name: 'SMM - Sundaram Mahadeo Mining & Materials', gstin: '20AAACS7890K5Z5', address: 'Tupudana Industrial Estate', phone: '9431102914', contactPerson: 'Manish Sundaram', brands_handled: 'Sand, Stone Aggregates, Cement', prices: { purchase: 42, retail: 55, wholesale: 48 }, location: { lat: 23.2941, lng: 85.2896 } },
-  { id: 'f-06', name: 'Ranchi Mega Infrastructure Corp', gstin: '20BAPPR4412K1Z9', address: 'Harmu Bypass, Ranchi', phone: '9835012345', contactPerson: 'Sunil Jaiswal', brands_handled: 'UltraTech, Tata Tiscon', prices: { purchase: 335, retail: 375, wholesale: 350 }, location: { lat: 23.3512, lng: 85.3102 } },
-  { id: 'f-08', name: 'Sharma Cement Agency', gstin: '20AABCS1122E1Z8', address: 'Kokar Chowk, Ranchi', phone: '9835012347', contactPerson: 'Mukesh Sharma', brands_handled: 'UltraTech, Birla Gold', prices: { purchase: 330, retail: 365, wholesale: 342 }, location: { lat: 23.3755, lng: 85.3421 } }
-];
+export const SEED_FIRMS = [];
 
 export const DEFAULT_APP_CONFIG = {
   id: 'global',
@@ -103,7 +71,15 @@ export const DEFAULT_APP_CONFIG = {
 function getCached(key, defaultVal) {
   try {
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : defaultVal;
+    if (!raw) return defaultVal;
+    const parsed = JSON.parse(raw);
+    if (key === 'offline_users' && Array.isArray(parsed)) {
+      return parsed.filter(u => !['exec-0001', 'exec-0002', 'exec-0003', 'exec-0004', 'exec-0005'].includes(u.id || u.user_id) && u.full_name !== 'Rajesh Kumar' && u.full_name !== 'Amit Sharma');
+    }
+    if ((key === 'offline_firms' || key === 'onboarded_firms') && Array.isArray(parsed)) {
+      return parsed.filter(f => !['f-smst', 'f-smbnc', 'f-smgh', 'f-pss', 'f-smm', 'f-06', 'f-08'].includes(f.id));
+    }
+    return parsed;
   } catch (e) {
     return defaultVal;
   }

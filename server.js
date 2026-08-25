@@ -49,13 +49,7 @@ const fallbackCache = {
     adminNotificationsEnabled: true,
     autoDispatchEnabled: true,
     dispatchTime: '08:00',
-    execMappings: [
-      { execId: 'exec-0001', execName: 'Rajesh Kumar', chatId: '@rajesh_smm_fma' },
-      { execId: 'exec-0002', execName: 'Amit Sharma', chatId: '@amit_smm_fma' },
-      { execId: 'exec-0003', execName: 'Priya Verma', chatId: '@priya_smm_fma' },
-      { execId: 'exec-0004', execName: 'Suresh Mahato', chatId: '@suresh_smm_fma' },
-      { execId: 'exec-0005', execName: 'Vikram Singh', chatId: '@vikram_smm_fma' }
-    ]
+    execMappings: []
   },
   telegramLogs: [],
   notifications: [],
@@ -77,7 +71,6 @@ const fallbackCache = {
   try {
     const salt = await bcrypt.genSalt(10);
     const adminHash = await bcrypt.hash('admin123', salt);
-    const execHash = await bcrypt.hash('exec123', salt);
 
     const defaultAdmin = {
       id: 'admin-0000-0000-0000-000000000001',
@@ -93,114 +86,8 @@ const fallbackCache = {
     };
     fallbackCache.users.push(defaultAdmin);
 
-    // Seed Field Executives
-    const seedExecs = [
-      {
-        id: 'exec-0001',
-        user_id: 'exec-0001',
-        full_name: 'Rajesh Kumar',
-        phone_number: '9876543210',
-        email: 'rajesh.kumar@sundarammahadeogroup.com',
-        password_hash: execHash,
-        role: 'EXECUTIVE',
-        status: 'APPROVED',
-        current_address: 'Ranchi Central Territory, Jharkhand',
-        supervisor: 'HQ Admin'
-      },
-      {
-        id: 'exec-0002',
-        user_id: 'exec-0002',
-        full_name: 'Amit Sharma',
-        phone_number: '9876543211',
-        email: 'amit.sharma@sundarammahadeogroup.com',
-        password_hash: execHash,
-        role: 'EXECUTIVE',
-        status: 'APPROVED',
-        current_address: 'Dhanbad & Bokaro Circle, Jharkhand',
-        supervisor: 'HQ Admin'
-      },
-      {
-        id: 'exec-0003',
-        user_id: 'exec-0003',
-        full_name: 'Priya Verma',
-        phone_number: '9876543212',
-        email: 'priya.verma@sundarammahadeogroup.com',
-        password_hash: execHash,
-        role: 'EXECUTIVE',
-        status: 'APPROVED',
-        current_address: 'Jamshedpur & Industrial Zone, Jharkhand',
-        supervisor: 'HQ Admin'
-      },
-      {
-        id: 'exec-0004',
-        user_id: 'exec-0004',
-        full_name: 'Suresh Mahato',
-        phone_number: '9876543213',
-        email: 'suresh.mahato@sundarammahadeogroup.com',
-        password_hash: execHash,
-        role: 'EXECUTIVE',
-        status: 'APPROVED',
-        current_address: 'Hazaribagh & Ramgarh Belt, Jharkhand',
-        supervisor: 'HQ Admin'
-      },
-      {
-        id: 'exec-0005',
-        user_id: 'exec-0005',
-        full_name: 'Vikram Singh',
-        phone_number: '9876543214',
-        email: 'vikram.singh@sundarammahadeogroup.com',
-        password_hash: execHash,
-        role: 'EXECUTIVE',
-        status: 'APPROVED',
-        current_address: 'Patna & South Bihar Hub',
-        supervisor: 'HQ Admin'
-      }
-    ];
-
-    seedExecs.forEach(e => fallbackCache.users.push(e));
-
-    // Seed Comprehensive Client Directory
-    const seedFirms = [
-      // 1-5 Group Key Companies
-      { id: 'f-smst', name: 'SMST - Sundaram Mahadeo Steels & Traders', gstin: '20AAACS1234F1Z1', address: 'Ranchi Industrial Area', phone: '9431102910', contactPerson: 'Arun Agarwal', brands_handled: 'Tata Tiscon, Jindal Panther', prices: { purchase: 52000, retail: 56000, wholesale: 54000 }, location: { lat: 23.3641, lng: 85.3296 } },
-      { id: 'f-smbnc', name: 'SMBNC - Sundaram Mahadeo Buildcon & Cement', gstin: '20AAACS5678G2Z2', address: 'Bariatu Road, Ranchi', phone: '9431102911', contactPerson: 'Vikas Sundaram', brands_handled: 'UltraTech, ACC Cement', prices: { purchase: 330, retail: 370, wholesale: 345 }, location: { lat: 23.3841, lng: 85.3496 } },
-      { id: 'f-smgh', name: 'SMGH - Sundaram Mahadeo Grand Hardware', gstin: '20AAACS9012H3Z3', address: 'Main Road Commercial Plaza, Ranchi', phone: '9431102912', contactPerson: 'Ramesh Mahadeo', brands_handled: 'Supreme Pipes, Astral, Asian Paints', prices: { purchase: 450, retail: 520, wholesale: 480 }, location: { lat: 23.3441, lng: 85.3196 } },
-      { id: 'f-pss', name: 'PSS - Pragati Steel & Sanitations', gstin: '20AAACS3456J4Z4', address: 'Namkum Industrial Corridor', phone: '9431102913', contactPerson: 'Sanjay Pragati', brands_handled: 'SAIL, Tata Tiscon, Hindware', prices: { purchase: 51500, retail: 55000, wholesale: 53000 }, location: { lat: 23.3241, lng: 85.3796 } },
-      { id: 'f-smm', name: 'SMM - Sundaram Mahadeo Mining & Materials', gstin: '20AAACS7890K5Z5', address: 'Tupudana Industrial Estate', phone: '9431102914', contactPerson: 'Manish Sundaram', brands_handled: 'Sand, Stone Aggregates, Cement', prices: { purchase: 42, retail: 55, wholesale: 48 }, location: { lat: 23.2941, lng: 85.2896 } },
-      
-      // 6-12 High Volume Top Buyer Dealerships
-      { id: 'f-06', name: 'Ranchi Mega Infrastructure Corp', gstin: '20BAPPR4412K1Z9', address: 'Harmu Bypass, Ranchi', phone: '9835012345', contactPerson: 'Sunil Jaiswal', brands_handled: 'UltraTech, Tata Tiscon', prices: { purchase: 335, retail: 375, wholesale: 350 }, location: { lat: 23.3512, lng: 85.3102 } },
-      { id: 'f-07', name: 'Patna City Builders & Concrete', gstin: '10AAACR9910D1Z4', address: 'Bailey Road, Patna', phone: '9835012346', contactPerson: 'Deepak Sinha', brands_handled: 'ACC, Jindal Steel', prices: { purchase: 340, retail: 380, wholesale: 355 }, location: { lat: 25.5941, lng: 85.1376 } },
-      { id: 'f-08', name: 'Sharma Cement Agency', gstin: '20AABCS1122E1Z8', address: 'Kokar Chowk, Ranchi', phone: '9835012347', contactPerson: 'Mukesh Sharma', brands_handled: 'UltraTech, Birla Gold', prices: { purchase: 330, retail: 365, wholesale: 342 }, location: { lat: 23.3755, lng: 85.3421 } },
-      { id: 'f-09', name: 'Jharkhand Steel & Hardware Hub', gstin: '20AAHFJ8831L1Z2', address: 'Bank More, Dhanbad', phone: '9835012348', contactPerson: 'Gopal Kedia', brands_handled: 'Tata Tiscon, JSW Steel', prices: { purchase: 52500, retail: 56500, wholesale: 54000 }, location: { lat: 23.7957, lng: 86.4304 } },
-      { id: 'f-10', name: 'Bokaro Industrial Supplies Ltd', gstin: '20AACCB4499M1Z3', address: 'Sector 4 Commercial Area, Bokaro', phone: '9835012349', contactPerson: 'R. K. Mishra', brands_handled: 'SAIL TMT, ACC Cement', prices: { purchase: 338, retail: 375, wholesale: 350 }, location: { lat: 23.6693, lng: 86.1511 } },
-      { id: 'f-11', name: 'Dhanbad Mineral Traders', gstin: '20AACCD7788N1Z5', address: 'Govindpur Highway, Dhanbad', phone: '9835012350', contactPerson: 'S. N. Singh', brands_handled: 'Aggregates, Stone Chips', prices: { purchase: 45, retail: 58, wholesale: 50 }, location: { lat: 23.8341, lng: 86.5211 } },
-      { id: 'f-12', name: 'Jamshedpur Construction Depot', gstin: '20AACCJ2233P1Z6', address: 'Sakchi Market, Jamshedpur', phone: '9835012351', contactPerson: 'Karan Patel', brands_handled: 'Tata Tiscon, Supreme Pipes', prices: { purchase: 53000, retail: 57000, wholesale: 54500 }, location: { lat: 22.8046, lng: 86.2029 } },
-
-      // 13-20 Slow Payment Delay Dealerships
-      { id: 'f-13', name: 'Gupta Building Materials Store', gstin: '20AACCG6655Q1Z7', address: 'Ratu Road, Ranchi', phone: '9835012352', contactPerson: 'Alok Gupta', brands_handled: 'Ambuja Cement, Local Rods', prices: { purchase: 325, retail: 360, wholesale: 340 }, location: { lat: 23.3712, lng: 85.2981 } },
-      { id: 'f-14', name: 'Kolkata-Ranchi Logistics & Infra', gstin: '20AABCK8899R1Z8', address: 'Tatisilwai Industrial Zone', phone: '9835012353', contactPerson: 'Prabir Ghosh', brands_handled: 'Cement, Aggregates', prices: { purchase: 328, retail: 365, wholesale: 342 }, location: { lat: 23.3541, lng: 85.4211 } },
-      { id: 'f-15', name: 'Chotanagpur Cement Agency', gstin: '20AACCC4433S1Z9', address: 'Kanke Road, Ranchi', phone: '9835012354', contactPerson: 'Binod Oraon', brands_handled: 'ACC, Dalmia Cement', prices: { purchase: 322, retail: 358, wholesale: 338 }, location: { lat: 23.4112, lng: 85.3211 } },
-      { id: 'f-16', name: 'Maa Durga Hardware Center', gstin: '20AABCM3322T1Z0', address: 'Ramgarh Cantt Main Road', phone: '9835012355', contactPerson: 'Pawan Pandey', brands_handled: 'Pipes, Fittings, Rods', prices: { purchase: 440, retail: 510, wholesale: 470 }, location: { lat: 23.6312, lng: 85.5181 } },
-      { id: 'f-17', name: 'National Builders Supply Co.', gstin: '20AACCN9988U1Z1', address: 'Chas, Bokaro', phone: '9835012356', contactPerson: 'Harish Chandra', brands_handled: 'Cement, Blocks', prices: { purchase: 330, retail: 368, wholesale: 345 }, location: { lat: 23.6341, lng: 86.1791 } },
-      { id: 'f-18', name: 'Singh Stone & Aggregate Traders', gstin: '20AABCS7766V1Z2', address: 'Khunti Road Outpost', phone: '9835012357', contactPerson: 'Devendra Singh', brands_handled: 'Stone Aggregates, Sand', prices: { purchase: 40, retail: 52, wholesale: 46 }, location: { lat: 23.1841, lng: 85.2796 } },
-      { id: 'f-19', name: 'Apex Concrete & TMT Hub', gstin: '20AACCA5544W1Z3', address: 'Adityapur Industrial Area, Jamshedpur', phone: '9835012358', contactPerson: 'Naresh Prasad', brands_handled: 'Jindal Steel, Cement', prices: { purchase: 52000, retail: 55800, wholesale: 53500 }, location: { lat: 22.7841, lng: 86.1596 } },
-      { id: 'f-20', name: 'Eastern Earthmovers & Supplies', gstin: '20AABCE1199X1Z4', address: 'Nirsa Highway, Dhanbad', phone: '9835012359', contactPerson: 'Tapan Das', brands_handled: 'Building Aggregates, Sand', prices: { purchase: 44, retail: 56, wholesale: 49 }, location: { lat: 23.7841, lng: 86.7196 } },
-
-      // 21-30 Lowest Purchasing & Dormant Dealerships
-      { id: 'f-21', name: 'Hazaribagh Hardware Point', gstin: '20AAACH1100Y1Z5', address: 'Indra Chowk, Hazaribagh', phone: '9835012360', contactPerson: 'Manoj Kumar', brands_handled: 'Pipes, Sanitary', prices: { purchase: 430, retail: 495, wholesale: 460 }, location: { lat: 23.9941, lng: 85.3696 } },
-      { id: 'f-22', name: 'Birsa Stone Depot', gstin: '20AABCB2211Z1Z6', address: 'Torpa Road, Khunti', phone: '9835012361', contactPerson: 'Somra Munda', brands_handled: 'Stone Blocks, Sand', prices: { purchase: 38, retail: 50, wholesale: 44 }, location: { lat: 23.0741, lng: 85.2796 } },
-      { id: 'f-23', name: 'Ramgarh Pipe Store', gstin: '20AAACR3322A1Z7', address: 'Gola Road, Ramgarh', phone: '9835012362', contactPerson: 'Ajay Sahu', brands_handled: 'PVC Pipes, Fixtures', prices: { purchase: 420, retail: 490, wholesale: 450 }, location: { lat: 23.5941, lng: 85.5496 } },
-      { id: 'f-24', name: 'Chhatarpur Paints & Cement', gstin: '20AABCC4433B1Z8', address: 'Chhatarpur Market, Palamu', phone: '9835012363', contactPerson: 'Santosh Yadav', brands_handled: 'Cement, Distemper', prices: { purchase: 320, retail: 355, wholesale: 335 }, location: { lat: 24.3641, lng: 84.1896 } },
-      { id: 'f-25', name: 'Khunti Sanitary & Fittings', gstin: '20AAACK5544C1Z9', address: 'Cinema Road, Khunti', phone: '9835012364', contactPerson: 'Ravi Kerketta', brands_handled: 'Fittings, Taps', prices: { purchase: 410, retail: 480, wholesale: 440 }, location: { lat: 23.0841, lng: 85.2896 } },
-      { id: 'f-26', name: 'Lohardaga Iron & Rods', gstin: '20AABCL6655D1Z0', address: 'Power Ganj, Lohardaga', phone: '9835012365', contactPerson: 'Kailash Sahu', brands_handled: 'Rods, Wire Mesh', prices: { purchase: 51000, retail: 54500, wholesale: 52500 }, location: { lat: 23.4341, lng: 84.6896 } },
-      { id: 'f-27', name: 'Simdega Retail Mart', gstin: '20AAACS7766E1Z1', address: 'Albert Ekka Chowk, Simdega', phone: '9835012366', contactPerson: 'Pankaj Soreng', brands_handled: 'Cement, Paints', prices: { purchase: 325, retail: 360, wholesale: 340 }, location: { lat: 22.6141, lng: 84.5096 } },
-      { id: 'f-28', name: 'Gumla Builders Supply', gstin: '20AABCG8877F1Z2', address: 'Tower Chowk, Gumla', phone: '9835012367', contactPerson: 'Mohan Bhagat', brands_handled: 'Cement, Sand', prices: { purchase: 322, retail: 358, wholesale: 338 }, location: { lat: 23.0441, lng: 84.5496 } },
-      { id: 'f-29', name: 'Koderma Cement Point', gstin: '20AAACK9988G1Z3', address: 'Jhumri Telaiya, Koderma', phone: '9835012368', contactPerson: 'Ashok Barnwal', brands_handled: 'Cement Bags', prices: { purchase: 328, retail: 365, wholesale: 342 }, location: { lat: 24.4341, lng: 85.5296 } },
-      { id: 'f-30', name: 'Latehar Trading Co.', gstin: '20AABCL0011H1Z4', address: 'Station Road, Latehar', phone: '9835012369', contactPerson: 'Dinesh Prasad', brands_handled: 'Bricks, Sand', prices: { purchase: 8, retail: 11, wholesale: 9.5 }, location: { lat: 23.7441, lng: 84.4996 } }
-    ];
-
-    seedFirms.forEach(f => fallbackCache.firms.push(f));
+    // Clean start for Firms Directory (user will onboard firms)
+    fallbackCache.firms = [];
 
     if (supabase) {
       // Upsert admin to Supabase with valid hash
@@ -2912,26 +2799,17 @@ async function dispatchMonthEndAudit(targetYearMonthStr, manualTrigger = false) 
     }
 
     const topFirms = Object.values(firmTotals).sort((a, b) => b.totalPurchased - a.totalPurchased);
-    if (topFirms.length === 0) {
-      topFirms.push(
-        { firmName: 'SMST - Sundaram Mahadeo Steels & Traders', totalPurchased: 4482000, orderCount: 2 },
-        { firmName: 'SMBNC - Sundaram Mahadeo Buildcon & Cement', totalPurchased: 3404000, orderCount: 2 },
-        { firmName: 'SMGH - Sundaram Mahadeo Grand Hardware', totalPurchased: 2400000, orderCount: 2 },
-        { firmName: 'PSS - Pragati Steel & Sanitations', totalPurchased: 1980000, orderCount: 1 },
-        { firmName: 'Ranchi Mega Infrastructure Corp', totalPurchased: 1450000, orderCount: 1 }
-      );
-    }
 
     const execBreakdown = execs.map(e => {
       const eShifts = shiftsInMonth.filter(s => s.userId === e.id || s.userId === e.user_id);
       const eVisits = visitsInMonth.filter(v => v.userId === e.id || v.exec_id === e.id || v.userId === e.user_id);
-      const eKms = eShifts.reduce((sum, s) => sum + parseFloat(s.totalKms || 0), 0) || (e.id === 'exec-0001' ? 420 : 380);
-      const eSales = eVisits.reduce((sum, v) => sum + parseFloat(v.orderValue || 0), 0) || (e.id === 'exec-0001' ? 5200000 : 3400000);
-      const eColl = eVisits.reduce((sum, v) => sum + parseFloat(v.collectedAmount || 0), 0) || (e.id === 'exec-0001' ? 4800000 : 3100000);
+      const eKms = eShifts.reduce((sum, s) => sum + parseFloat(s.totalKms || 0), 0);
+      const eSales = eVisits.reduce((sum, v) => sum + parseFloat(v.orderValue || 0), 0);
+      const eColl = eVisits.reduce((sum, v) => sum + parseFloat(v.collectedAmount || 0), 0);
       return {
         name: e.full_name,
         totalKms: eKms,
-        visits: eVisits.length || 18,
+        visits: eVisits.length,
         sales: eSales,
         collections: eColl
       };
@@ -2941,7 +2819,7 @@ async function dispatchMonthEndAudit(targetYearMonthStr, manualTrigger = false) 
       periodMonth: targetYearMonthStr,
       totalExecs: execs.length,
       totalKms,
-      totalVisits: visitsInMonth.length || 86,
+      totalVisits: visitsInMonth.length,
       totalSales,
       totalCollections,
       topFirms,

@@ -7,6 +7,7 @@ import {
   Crosshair, ShieldCheck, AlertTriangle, ExternalLink, Target
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { captureLiveLocation } from '../lib/locationService';
 
 // Haversine distance calculator in meters between two GPS coordinates
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -136,24 +137,18 @@ export default function VisitLogger({ user }) {
     captureCurrentGps();
   }, []);
 
-  const captureCurrentGps = () => {
-    if (navigator.geolocation) {
-      setIsGpsLocating(true);
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setGpsLocation({
-            lat: Number(pos.coords.latitude.toFixed(5)),
-            lng: Number(pos.coords.longitude.toFixed(5))
-          });
-          setIsGpsLocating(false);
-        },
-        (err) => {
-          console.warn('GPS location fetch fallback:', err.message);
-          setIsGpsLocating(false);
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
-      );
+  const captureCurrentGps = async () => {
+    setIsGpsLocating(true);
+    const res = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 8000 });
+    if (res.success && res.coords) {
+      setGpsLocation({
+        lat: Number(res.coords.lat.toFixed(5)),
+        lng: Number(res.coords.lng.toFixed(5))
+      });
+    } else {
+      console.warn('[VisitLogger] Location capture notice:', res.error);
     }
+    setIsGpsLocating(false);
   };
 
   const fetchVisitsAndFirms = async () => {
@@ -170,9 +165,9 @@ export default function VisitLogger({ user }) {
       }
 
       if (firmsRes.status === 'fulfilled' && Array.isArray(firmsRes.value.data?.firms)) {
-        const serverFirms = firmsRes.value.data.firms;
-        setFirmsList(serverFirms);
-        localStorage.setItem('onboarded_firms', JSON.stringify(serverFirms));
+        const cleanFirms = firmsRes.value.data.firms.filter(f => !['f-smst', 'f-smbnc', 'f-smgh', 'f-pss', 'f-smm', 'f-06', 'f-08'].includes(f.id));
+        setFirmsList(cleanFirms);
+        localStorage.setItem('onboarded_firms', JSON.stringify(cleanFirms));
       }
     } catch (err) {
       console.warn('API error fetching visits/firms, utilizing local storage cache.');

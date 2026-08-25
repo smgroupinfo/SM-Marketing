@@ -446,7 +446,7 @@ async function handleSupabaseFallback(method, url, data) {
   if (cleanUrl === '/shifts/start' && method === 'post') {
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const { openingOdometer, photo, location } = data || {};
-    const shift = await directSupabaseStartShift(user.userId || user.id || 'exec-0001', openingOdometer, photo, location);
+    const shift = await directSupabaseStartShift(user.userId || user.id, openingOdometer, photo, location);
     return {
       data: {
         message: 'Shift started',
@@ -562,7 +562,8 @@ async function handleSupabaseFallback(method, url, data) {
     const firms = await directSupabaseGetFirms();
     const visits = await directSupabaseGetVisits('ALL');
     const shifts = await directSupabaseGetShifts('ALL');
-    const users = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
+    const rawUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
+    const users = rawUsers.filter(u => !['exec-0001', 'exec-0002', 'exec-0003', 'exec-0004', 'exec-0005'].includes(u.id || u.user_id) && u.full_name !== 'Rajesh Kumar' && u.full_name !== 'Amit Sharma');
     const config = JSON.parse(localStorage.getItem('app_config') || JSON.stringify(DEFAULT_APP_CONFIG));
 
     const analytics = generateFallbackAnalytics(firms, visits, shifts, users, config);
@@ -628,7 +629,8 @@ async function handleSupabaseFallback(method, url, data) {
       }
     }
     if (usersList.length === 0) {
-      const cachedUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
+      const rawUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
+      const cachedUsers = rawUsers.filter(u => !['exec-0001', 'exec-0002', 'exec-0003', 'exec-0004', 'exec-0005'].includes(u.id || u.user_id) && u.full_name !== 'Rajesh Kumar' && u.full_name !== 'Amit Sharma');
       usersList = cachedUsers.map(u => ({
         ...u,
         user_id: u.id || u.userId,
@@ -691,7 +693,9 @@ async function handleSupabaseFallback(method, url, data) {
       localStorage.setItem('telegram_config', JSON.stringify(merged));
       return { data: { message: 'Telegram configuration saved', config: merged } };
     }
-    return { data: { config: cfg, activeExecs: SEED_USERS.filter(u => u.role === 'EXECUTIVE') } };
+    const rawUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
+    const activeExecs = rawUsers.filter(u => u.role === 'EXECUTIVE' && !['exec-0001', 'exec-0002', 'exec-0003', 'exec-0004', 'exec-0005'].includes(u.id || u.user_id) && u.full_name !== 'Rajesh Kumar' && u.full_name !== 'Amit Sharma');
+    return { data: { config: cfg, activeExecs } };
   }
 
   // 20. Telegram Test: POST

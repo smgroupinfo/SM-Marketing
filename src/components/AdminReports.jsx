@@ -816,16 +816,24 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {(reportData.visitPerformance?.byExecutive || []).map(v => (
-                        <tr key={v.execId} className="hover:bg-gray-50">
-                          <td className="p-4 font-bold text-gray-900">{v.execName}</td>
-                          <td className="p-4 text-center font-bold text-gray-800">{v.totalVisits}</td>
-                          <td className="p-4 text-center font-semibold text-green-600">{v.verified}</td>
-                          <td className="p-4 text-center font-semibold text-red-600">{v.rejected}</td>
-                          <td className="p-4 text-center font-semibold text-amber-600">{v.pending}</td>
-                          <td className="p-4 text-right font-black text-gray-900">{v.rejectionRate}</td>
+                      {(reportData.visitPerformance?.byExecutive || []).length > 0 ? (
+                        reportData.visitPerformance.byExecutive.map(v => (
+                          <tr key={v.execId} className="hover:bg-gray-50">
+                            <td className="p-4 font-bold text-gray-900">{v.execName}</td>
+                            <td className="p-4 text-center font-bold text-gray-800">{v.totalVisits}</td>
+                            <td className="p-4 text-center font-semibold text-green-600">{v.verified}</td>
+                            <td className="p-4 text-center font-semibold text-red-600">{v.rejected}</td>
+                            <td className="p-4 text-center font-semibold text-amber-600">{v.pending}</td>
+                            <td className="p-4 text-right font-black text-gray-900">{v.rejectionRate}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                            No field executive visits recorded for this period.
+                          </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -873,70 +881,78 @@ export default function AdminReports({ user, initialSubTab = 'overview' }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 font-medium">
-                      {filterList(reportData.topPerformersExecs).map((exec) => (
-                        <tr key={exec.execId} className="hover:bg-purple-50/40 transition-colors">
-                          <td className="p-4 text-center">
-                            <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-sm ${
-                              exec.rank === 1 ? 'bg-amber-400 text-amber-950 shadow-md shadow-amber-400/30 ring-2 ring-amber-300' :
-                              exec.rank === 2 ? 'bg-slate-300 text-slate-900 ring-2 ring-slate-200' :
-                              exec.rank === 3 ? 'bg-amber-700 text-white ring-2 ring-amber-600' :
-                              'bg-gray-100 text-gray-700'
-                            }`}>
-                              {exec.rank === 1 ? '🥇' : exec.rank === 2 ? '🥈' : exec.rank === 3 ? '🥉' : `#${exec.rank}`}
-                            </span>
-                          </td>
-                          <td className="p-4">
-                            <div className="flex items-center gap-2">
-                              <p className="font-black text-gray-900">{exec.execName}</p>
-                              {exec.activeShift && (
-                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Shift Currently Active"></span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
-                              <Phone size={12} className="text-gray-400" /> {exec.phoneNumber || '9876543210'}
-                            </div>
-                            <p className="text-[11px] text-gray-400 mt-0.5">{exec.territory}</p>
-                          </td>
-                          <td className="p-4 text-right font-black text-green-700 text-base">
-                            ₹{formatINR(exec.salesValue)}
-                          </td>
-                          <td className="p-4 text-right font-semibold text-gray-800">
-                            {formatNum(exec.volumeUnits)}
-                          </td>
-                          <td className="p-4 text-right font-black text-blue-700">
-                            ₹{formatINR(exec.collections)}
-                          </td>
-                          <td className="p-4 text-right font-bold text-amber-700">
-                            ₹{formatINR(exec.incentives)}
-                          </td>
-                          <td className="p-4 text-right text-xs">
-                            <p className="font-bold text-gray-900">{exec.kms || 0} km</p>
-                            <p className="text-gray-500">₹{formatINR(exec.netReimbursement)}</p>
-                          </td>
-                          <td className="p-4 text-center">
-                            <span className="px-2.5 py-1 bg-gray-100 text-gray-800 rounded-lg text-xs font-bold">
-                              {exec.visitsCount || 0} logged
-                            </span>
-                          </td>
-                          <td className="p-4 text-center">
-                            <div className="inline-flex flex-col items-center">
-                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
-                                (exec.score || 0) >= 85 ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300' :
-                                (exec.score || 0) >= 70 ? 'bg-blue-100 text-blue-800' :
+                      {filterList(reportData.topPerformersExecs).length > 0 ? (
+                        filterList(reportData.topPerformersExecs).map((exec) => (
+                          <tr key={exec.execId} className="hover:bg-purple-50/40 transition-colors">
+                            <td className="p-4 text-center">
+                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-sm ${
+                                exec.rank === 1 ? 'bg-amber-400 text-amber-950 shadow-md shadow-amber-400/30 ring-2 ring-amber-300' :
+                                exec.rank === 2 ? 'bg-slate-300 text-slate-900 ring-2 ring-slate-200' :
+                                exec.rank === 3 ? 'bg-amber-700 text-white ring-2 ring-amber-600' :
                                 'bg-gray-100 text-gray-700'
                               }`}>
-                                {exec.score || 0} pts • {exec.rating}
+                                {exec.rank === 1 ? '🥇' : exec.rank === 2 ? '🥈' : exec.rank === 3 ? '🥉' : `#${exec.rank}`}
                               </span>
-                              <div className="w-16 bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
-                                <div 
-                                  className={`h-full ${(exec.score || 0) >= 85 ? 'bg-purple-600' : (exec.score || 0) >= 70 ? 'bg-blue-600' : 'bg-gray-500'}`}
-                                  style={{ width: `${exec.score || 0}%` }}
-                                ></div>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                <p className="font-black text-gray-900">{exec.execName}</p>
+                                {exec.activeShift && (
+                                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Shift Currently Active"></span>
+                                )}
                               </div>
-                            </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                                <Phone size={12} className="text-gray-400" /> {exec.phoneNumber || '9876543210'}
+                              </div>
+                              <p className="text-[11px] text-gray-400 mt-0.5">{exec.territory}</p>
+                            </td>
+                            <td className="p-4 text-right font-black text-green-700 text-base">
+                              ₹{formatINR(exec.salesValue)}
+                            </td>
+                            <td className="p-4 text-right font-semibold text-gray-800">
+                              {formatNum(exec.volumeUnits)}
+                            </td>
+                            <td className="p-4 text-right font-black text-blue-700">
+                              ₹{formatINR(exec.collections)}
+                            </td>
+                            <td className="p-4 text-right font-bold text-amber-700">
+                              ₹{formatINR(exec.incentives)}
+                            </td>
+                            <td className="p-4 text-right text-xs">
+                              <p className="font-bold text-gray-900">{exec.kms || 0} km</p>
+                              <p className="text-gray-500">₹{formatINR(exec.netReimbursement)}</p>
+                            </td>
+                            <td className="p-4 text-center">
+                              <span className="px-2.5 py-1 bg-gray-100 text-gray-800 rounded-lg text-xs font-bold">
+                                {exec.visitsCount || 0} logged
+                              </span>
+                            </td>
+                            <td className="p-4 text-center">
+                              <div className="inline-flex flex-col items-center">
+                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-black ${
+                                  (exec.score || 0) >= 85 ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300' :
+                                  (exec.score || 0) >= 70 ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {exec.score || 0} pts • {exec.rating}
+                                </span>
+                                <div className="w-16 bg-gray-200 h-1.5 rounded-full mt-1.5 overflow-hidden">
+                                  <div 
+                                    className={`h-full ${(exec.score || 0) >= 85 ? 'bg-purple-600' : (exec.score || 0) >= 70 ? 'bg-blue-600' : 'bg-gray-500'}`}
+                                    style={{ width: `${exec.score || 0}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={9} className="p-8 text-center text-xs text-gray-400">
+                            No field executives registered yet. Register new executives in User Management System.
                           </td>
                         </tr>
-                      ))}
+                      )}
                     </tbody>
                   </table>
                 </div>

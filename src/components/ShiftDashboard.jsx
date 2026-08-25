@@ -5,6 +5,7 @@ import {
   IndianRupee, ChevronRight, FileText, Check, AlertTriangle 
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { captureLiveLocation } from '../lib/locationService';
 
 export default function ShiftDashboard({ user }) {
   // Main shift status: 'OFF_DUTY' | 'STARTING' | 'ACTIVE' | 'CLOSING' | 'REVIEW'
@@ -119,6 +120,17 @@ export default function ShiftDashboard({ user }) {
 
     setLoading(true);
 
+    // Capture live GPS coordinate
+    let liveStartLoc = { lat: 23.3441, lng: 85.3096 };
+    try {
+      const locRes = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 6000 });
+      if (locRes.success && locRes.coords) {
+        liveStartLoc = locRes.coords;
+      }
+    } catch (e) {
+      console.warn('Live location capture during shift start:', e);
+    }
+
     const generatedShiftId = 'shift_' + Date.now();
     const newShiftPayload = {
       id: generatedShiftId,
@@ -126,7 +138,7 @@ export default function ShiftDashboard({ user }) {
       openingOdometer: odoNum,
       openingPhoto: openingPhoto || openingPhotoPreview || 'data:image/png;base64,sample',
       startTime: new Date().toISOString(),
-      startLocation: { lat: 12.9716, lng: 77.5946 },
+      startLocation: liveStartLoc,
       status: 'ACTIVE',
       visitsCount: 0
     };
@@ -224,13 +236,24 @@ export default function ShiftDashboard({ user }) {
     // Ensure we read activeShiftId directly from localStorage if state had reset
     const storedShiftId = activeShiftId || localStorage.getItem('activeShiftId') || 'shift_' + Date.now();
 
+    // Capture live GPS coordinate
+    let liveCloseLoc = { lat: 23.3441, lng: 85.3096 };
+    try {
+      const locRes = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 6000 });
+      if (locRes.success && locRes.coords) {
+        liveCloseLoc = locRes.coords;
+      }
+    } catch (e) {
+      console.warn('Live location capture during shift close:', e);
+    }
+
     const closePayload = {
       activeShiftId: storedShiftId,
       shiftId: storedShiftId,
       closingOdometer: endOfDaySummary?.closingOdometer,
       closingPhoto: closingPhoto || closingPhotoPreview,
       endTime: new Date().toISOString(),
-      closeLocation: { lat: 12.9716, lng: 77.5946 }
+      closeLocation: liveCloseLoc
     };
 
     try {

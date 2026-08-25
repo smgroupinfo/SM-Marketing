@@ -3,6 +3,7 @@
   "description": "Sundaram Mahadeo Group Field Management & Financial Audit Application",
   "requestFramePermissions": [
     "camera",
+    "microphone",
     "geolocation"
   ],
   "majorCapabilities": [

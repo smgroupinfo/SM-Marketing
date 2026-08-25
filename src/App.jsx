@@ -17,7 +17,7 @@ import IncentivesDashboard from './components/IncentivesDashboard';
 import FirmOnboarding from './components/FirmOnboarding';
 import TelegramAdminConfig from './components/TelegramAdminConfig';
 import NotificationCenter from './components/NotificationCenter';
-import { PermissionsCheckScreen, RevokedPermissionsOverlay } from './components/DevicePermissionsGuard';
+import { PermissionsCheckScreen, RevokedPermissionsOverlay, InitialInstallPermissionsModal } from './components/DevicePermissionsGuard';
 
 // Safe JSON parser safeguard
 export function safeJsonParse(jsonString, fallback = null) {
@@ -442,20 +442,28 @@ function AdminDashboard({ user, onNavigate }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {(data.topPerformersExecs || []).slice(0, 5).map((e) => (
-                  <tr key={e.execId} className="hover:bg-gray-50">
-                    <td className="p-3 text-center font-black text-purple-700">#{e.rank}</td>
-                    <td className="p-3 font-bold text-gray-900">{e.execName}</td>
-                    <td className="p-3 text-right font-black text-green-700">₹{e.salesValue.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-right font-bold text-blue-700">₹{e.collections.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-right text-gray-700">{e.visitsCount} visits</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800">
-                        {e.score} pts
-                      </span>
+                {(data.topPerformersExecs || []).length > 0 ? (
+                  data.topPerformersExecs.slice(0, 5).map((e) => (
+                    <tr key={e.execId} className="hover:bg-gray-50">
+                      <td className="p-3 text-center font-black text-purple-700">#{e.rank}</td>
+                      <td className="p-3 font-bold text-gray-900">{e.execName}</td>
+                      <td className="p-3 text-right font-black text-green-700">₹{e.salesValue.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-right font-bold text-blue-700">₹{e.collections.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-right text-gray-700">{e.visitsCount} visits</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-800">
+                          {e.score} pts
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                      No field executives registered yet. Register and approve executives in User Management.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           )}
@@ -473,23 +481,31 @@ function AdminDashboard({ user, onNavigate }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {(data.top10PurchasingCompanies || []).slice(0, 5).map((f) => (
-                  <tr key={f.firmId} className="hover:bg-gray-50">
-                    <td className="p-3 text-center font-black text-emerald-700">#{f.rank}</td>
-                    <td className="p-3">
-                      <p className="font-bold text-gray-900">{f.firmName}</p>
-                      <p className="text-[10px] text-gray-500">{f.contactPerson}</p>
-                    </td>
-                    <td className="p-3 text-gray-700">{f.primaryProduct}</td>
-                    <td className="p-3 text-right font-black text-emerald-800">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-right font-bold text-blue-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        {f.tier}
-                      </span>
+                {(data.top10PurchasingCompanies || []).length > 0 ? (
+                  data.top10PurchasingCompanies.slice(0, 5).map((f) => (
+                    <tr key={f.firmId} className="hover:bg-gray-50">
+                      <td className="p-3 text-center font-black text-emerald-700">#{f.rank}</td>
+                      <td className="p-3">
+                        <p className="font-bold text-gray-900">{f.firmName}</p>
+                        <p className="text-[10px] text-gray-500">{f.contactPerson}</p>
+                      </td>
+                      <td className="p-3 text-gray-700">{f.primaryProduct}</td>
+                      <td className="p-3 text-right font-black text-emerald-800">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-right font-bold text-blue-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          {f.tier}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                      No purchase orders recorded yet. Transactions will appear here as field visits are submitted.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           )}
@@ -507,24 +523,32 @@ function AdminDashboard({ user, onNavigate }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {(data.top10TimelyPaymentCompanies || []).slice(0, 5).map((f) => (
-                  <tr key={f.firmId} className="hover:bg-gray-50">
-                    <td className="p-3 text-center font-black text-teal-700">#{f.rank}</td>
-                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 bg-teal-100 text-teal-900 font-bold rounded-full text-[10px]">
-                        ⚡ {f.avgDaysToPay === 0 ? 'Instant' : `${f.avgDaysToPay}d`}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center text-green-700 font-bold">{f.onTimeRatePercent}%</td>
-                    <td className="p-3 text-right font-black text-green-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-800 border border-green-200">
-                        {f.reliabilityRating}
-                      </span>
+                {(data.top10TimelyPaymentCompanies || []).length > 0 ? (
+                  data.top10TimelyPaymentCompanies.slice(0, 5).map((f) => (
+                    <tr key={f.firmId} className="hover:bg-gray-50">
+                      <td className="p-3 text-center font-black text-teal-700">#{f.rank}</td>
+                      <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 bg-teal-100 text-teal-900 font-bold rounded-full text-[10px]">
+                          ⚡ {f.avgDaysToPay === 0 ? 'Instant' : `${f.avgDaysToPay}d`}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center text-green-700 font-bold">{f.onTimeRatePercent}%</td>
+                      <td className="p-3 text-right font-black text-green-700">₹{f.totalPaid.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-800 border border-green-200">
+                          {f.reliabilityRating}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                      No payment settlements recorded yet.
                     </td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           )}
@@ -542,20 +566,28 @@ function AdminDashboard({ user, onNavigate }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {(data.top10LowestPurchasingCompanies || []).slice(0, 5).map((f) => (
-                  <tr key={f.firmId} className="hover:bg-gray-50">
-                    <td className="p-3 text-center font-black text-amber-700">#{f.rank}</td>
-                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
-                    <td className="p-3 text-right font-bold text-gray-900">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-center text-gray-700">{f.orderCount}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-semibold rounded text-[10px]">
-                        {f.daysSinceLastOrder}d gap
-                      </span>
+                {(data.top10LowestPurchasingCompanies || []).length > 0 ? (
+                  data.top10LowestPurchasingCompanies.slice(0, 5).map((f) => (
+                    <tr key={f.firmId} className="hover:bg-gray-50">
+                      <td className="p-3 text-center font-black text-amber-700">#{f.rank}</td>
+                      <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                      <td className="p-3 text-right font-bold text-gray-900">₹{f.totalPurchased.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-center text-gray-700">{f.orderCount}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 bg-amber-100 text-amber-900 font-semibold rounded text-[10px]">
+                          {f.daysSinceLastOrder}d gap
+                        </span>
+                      </td>
+                      <td className="p-3 text-[11px] text-amber-800 truncate max-w-xs">{f.recommendedAction}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                      No client directory records found.
                     </td>
-                    <td className="p-3 text-[11px] text-amber-800 truncate max-w-xs">{f.recommendedAction}</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           )}
@@ -573,24 +605,32 @@ function AdminDashboard({ user, onNavigate }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 font-medium">
-                {(data.top10SlowPaymentCompanies || []).slice(0, 5).map((f) => (
-                  <tr key={f.firmId} className="hover:bg-gray-50">
-                    <td className="p-3 text-center font-black text-rose-700">#{f.rank}</td>
-                    <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 bg-rose-100 text-rose-900 font-bold rounded-full text-[10px]">
-                        ⚠️ {f.avgDaysToPay}d
-                      </span>
+                {(data.top10SlowPaymentCompanies || []).length > 0 ? (
+                  data.top10SlowPaymentCompanies.slice(0, 5).map((f) => (
+                    <tr key={f.firmId} className="hover:bg-gray-50">
+                      <td className="p-3 text-center font-black text-rose-700">#{f.rank}</td>
+                      <td className="p-3 font-bold text-gray-900">{f.firmName}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 bg-rose-100 text-rose-900 font-bold rounded-full text-[10px]">
+                          ⚠️ {f.avgDaysToPay}d
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-black text-rose-700">₹{f.outstandingDues.toLocaleString('en-IN')}</td>
+                      <td className="p-3 text-center">
+                        <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-bold rounded text-[10px]">
+                          {f.riskLevel}
+                        </span>
+                      </td>
+                      <td className="p-3 text-[11px] text-rose-800 truncate max-w-xs">{f.recoveryAction}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-xs text-gray-400">
+                      No overdue payment delays detected.
                     </td>
-                    <td className="p-3 text-right font-black text-rose-700">₹{f.outstandingDues.toLocaleString('en-IN')}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 bg-rose-100 text-rose-800 font-bold rounded text-[10px]">
-                        {f.riskLevel}
-                      </span>
-                    </td>
-                    <td className="p-3 text-[11px] text-rose-800 truncate max-w-xs">{f.recoveryAction}</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           )}
@@ -1188,6 +1228,9 @@ export function AppContent() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans relative pb-20">
       
+      {/* 1. Initial Launch / Install Permission Prompt */}
+      <InitialInstallPermissionsModal />
+
       {/* 2. Fallback Lock Screen Overlay if permissions are revoked mid-shift */}
       {!isAdmin && revokedPermissionReason && !isBypassed && (
         <RevokedPermissionsOverlay

@@ -6,13 +6,16 @@ import {
   Navigation, Crosshair, Compass, ShieldCheck
 } from 'lucide-react';
 import { api } from '../lib/api';
+import { captureLiveLocation } from '../lib/locationService';
 
 export default function FirmOnboarding({ user }) {
   // 1. LOCAL STORAGE & INITIAL STATE FALLBACK
   const [firms, setFirms] = useState(() => {
     try {
       const saved = localStorage.getItem('onboarded_firms');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed.filter(f => !['f-smst', 'f-smbnc', 'f-smgh', 'f-pss', 'f-smm', 'f-06', 'f-08'].includes(f.id)) : [];
     } catch (e) {
       return [];
     }
@@ -62,44 +65,31 @@ export default function FirmOnboarding({ user }) {
     captureLiveGpsLocation(false);
   }, []);
 
-  const captureLiveGpsLocation = (showNotification = true) => {
-    if (!navigator.geolocation) {
-      setGpsStatusMsg('Geolocation not supported by device/browser');
-      if (showNotification) setErrorMsg('Geolocation is not supported by your browser.');
-      return;
-    }
-
+  const captureLiveGpsLocation = async (showNotification = true) => {
     setIsCapturingGps(true);
     setGpsStatusMsg('Acquiring high-precision satellite fix...');
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const lat = Number(pos.coords.latitude.toFixed(6));
-        const lng = Number(pos.coords.longitude.toFixed(6));
-        const acc = Math.round(pos.coords.accuracy);
-        
-        setGpsCoords({ lat, lng });
-        setGpsAccuracy(acc);
-        setGpsCapturedTime(new Date().toLocaleTimeString());
-        setIsCapturingGps(false);
-        setGpsStatusMsg(`Locked: ±${acc}m accuracy`);
+    const res = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 8000 });
 
-        if (showNotification) {
-          setSuccessMsg(`GPS Location captured successfully: ${lat}° N, ${lng}° E (±${acc}m)`);
-          setTimeout(() => setSuccessMsg(''), 4000);
-        }
-      },
-      (err) => {
-        console.warn('Geolocation capture fallback:', err.message);
-        setIsCapturingGps(false);
-        setGpsStatusMsg('GPS fix timed out (Using network approximate)');
-        if (showNotification) {
-          setErrorMsg(`GPS notice: ${err.message}. Using last known location.`);
-          setTimeout(() => setErrorMsg(''), 4000);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-    );
+    if (res.success && res.coords) {
+      setGpsCoords({ lat: res.coords.lat, lng: res.coords.lng });
+      setGpsAccuracy(res.accuracy || 25);
+      setGpsCapturedTime(new Date().toLocaleTimeString());
+      setIsCapturingGps(false);
+      setGpsStatusMsg(`Locked: ±${res.accuracy || 25}m accuracy`);
+
+      if (showNotification) {
+        setSuccessMsg(`GPS Location captured successfully: ${res.coords.lat}° N, ${res.coords.lng}° E (±${res.accuracy || 25}m)`);
+        setTimeout(() => setSuccessMsg(''), 4000);
+      }
+    } else {
+      setIsCapturingGps(false);
+      setGpsStatusMsg(res.error || 'GPS signal unavailable. Please retry.');
+      if (showNotification) {
+        setErrorMsg(res.error || 'Unable to lock GPS. Please verify location permissions.');
+        setTimeout(() => setErrorMsg(''), 5000);
+      }
+    }
   };
 
   const fetchFirmsAndVisits = async () => {
@@ -110,8 +100,9 @@ export default function FirmOnboarding({ user }) {
       ]);
 
       if (firmsRes.status === 'fulfilled' && Array.isArray(firmsRes.value.data?.firms)) {
-        setFirms(firmsRes.value.data.firms);
-        localStorage.setItem('onboarded_firms', JSON.stringify(firmsRes.value.data.firms));
+        const cleanFirms = firmsRes.value.data.firms.filter(f => !['f-smst', 'f-smbnc', 'f-smgh', 'f-pss', 'f-smm', 'f-06', 'f-08'].includes(f.id));
+        setFirms(cleanFirms);
+        localStorage.setItem('onboarded_firms', JSON.stringify(cleanFirms));
       }
 
       if (visitsRes.status === 'fulfilled' && Array.isArray(visitsRes.value.data?.visits)) {
