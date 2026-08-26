@@ -53,8 +53,8 @@ axiosInstance.interceptors.request.use((config) => {
 
 // Helper function to build intelligent reports and rankings directly from visits/shifts
 function generateFallbackAnalytics(firms = [], visits = [], shifts = [], users = [], config = {}) {
-  const kmRate = config?.kmRate || 5;
-  const foodingRate = config?.foodingAllowance || 250;
+  const kmRate = Number(config?.kmRate ?? config?.km_rate ?? 5);
+  const foodingRate = Number(config?.foodingAllowance ?? config?.fooding_allowance ?? 250);
   const todayStr = new Date().toISOString().split('T')[0];
 
   let totalBilling = 0;
@@ -516,9 +516,19 @@ async function handleSupabaseFallback(method, url, data) {
     const uid = user.userId || user.id;
     const visits = await directSupabaseGetVisits(uid);
     const shifts = await directSupabaseGetShifts(uid);
-    const config = JSON.parse(localStorage.getItem('app_config') || JSON.stringify(DEFAULT_APP_CONFIG));
-    const kmRate = config?.kmRate || 5;
-    const foodingRate = config?.foodingAllowance || 250;
+    
+    let config = null;
+    try {
+      const cached = localStorage.getItem('app_config');
+      if (cached) config = JSON.parse(cached);
+    } catch (e) {}
+    if (!config) config = DEFAULT_APP_CONFIG;
+
+    const kmRate = Number(config?.kmRate ?? config?.km_rate ?? 5);
+    const foodingRate = Number(config?.foodingAllowance ?? config?.fooding_allowance ?? 250);
+    const productMatrix = Array.isArray(config?.incentives) && config.incentives.length > 0
+      ? config.incentives
+      : DEFAULT_APP_CONFIG.incentives;
 
     const todayStr = new Date().toISOString().split('T')[0];
     const todayShifts = shifts.filter(s => (s.startTime || s.start_time || '').startsWith(todayStr));
@@ -540,7 +550,8 @@ async function handleSupabaseFallback(method, url, data) {
           dailyFoodingAllowance: foodingRate,
           totalKmPayout: kmPayout,
           totalFoodingPayout: foodingPayout,
-          netPayoutToday: totalBags + kmPayout + foodingPayout
+          netPayoutToday: totalBags + kmPayout + foodingPayout,
+          productMatrix
         },
         instrumentBreakdown: {
           cash: visits.filter(v => (v.paymentMode || '').toLowerCase().includes('cash')).reduce((s, v) => s + parseFloat(v.collectedAmount || 0), 0),
@@ -564,7 +575,13 @@ async function handleSupabaseFallback(method, url, data) {
     const shifts = await directSupabaseGetShifts('ALL');
     const rawUsers = JSON.parse(localStorage.getItem('offline_users') || JSON.stringify(SEED_USERS));
     const users = rawUsers.filter(u => !['exec-0001', 'exec-0002', 'exec-0003', 'exec-0004', 'exec-0005'].includes(u.id || u.user_id) && u.full_name !== 'Rajesh Kumar' && u.full_name !== 'Amit Sharma');
-    const config = JSON.parse(localStorage.getItem('app_config') || JSON.stringify(DEFAULT_APP_CONFIG));
+    
+    let config = null;
+    try {
+      const cached = localStorage.getItem('app_config');
+      if (cached) config = JSON.parse(cached);
+    } catch (e) {}
+    if (!config) config = DEFAULT_APP_CONFIG;
 
     const analytics = generateFallbackAnalytics(firms, visits, shifts, users, config);
     return { data: analytics };
@@ -572,37 +589,84 @@ async function handleSupabaseFallback(method, url, data) {
 
   // 14. Config: GET / PUT (Admin & Global)
   if ((cleanUrl === '/config' || cleanUrl === '/admin/config') && method === 'get') {
+    let localCfg = null;
+    try {
+      const cached = localStorage.getItem('app_config');
+      if (cached) localCfg = JSON.parse(cached);
+    } catch (e) {}
+
     if (supabase) {
       try {
         const { data: cfg, error: cfgError } = await supabase.from('app_config').select('*').limit(1).single();
         if (!cfgError && cfg) {
           const formatted = {
-            kmRate: cfg.km_rate || cfg.kmRate || 5,
-            foodingAllowance: cfg.fooding_allowance || cfg.foodingAllowance || 250,
-            incentives: Array.isArray(cfg.incentives) ? cfg.incentives : DEFAULT_APP_CONFIG.incentives
+            id: 'global',
+            kmRate: Number(cfg.km_rate ?? cfg.kmRate ?? (localCfg?.kmRate ?? 5)),
+            foodingAllowance: Number(cfg.fooding_allowance ?? cfg.foodingAllowance ?? (localCfg?.foodingAllowance ?? 250)),
+            incentives: Array.isArray(cfg.incentives) && cfg.incentives.length > 0 
+              ? cfg.incentives 
+              : (localCfg?.incentives || DEFAULT_APP_CONFIG.incentives)
           };
+          localStorage.setItem('app_config', JSON.stringify(formatted));
           return { data: formatted };
         }
       } catch (e) {
         console.warn('[Supabase Config GET Error]', e);
       }
     }
-    return { data: DEFAULT_APP_CONFIG };
+
+    if (localCfg) {
+      return {
+        data: {
+          id: 'global',
+          kmRate: Number(localCfg.kmRate ?? localCfg.km_rate ?? 5),
+          foodingAllowance: Number(localCfg.foodingAllowance ?? localCfg.fooding_allowance ?? 250),
+          incentives: Array.isArray(localCfg.incentives) && localCfg.incentives.length > 0 
+            ? localCfg.incentives 
+            : DEFAULT_APP_CONFIG.incentives
+        }
+      };
+    }
+
+    return { 
+      data: {
+        id: 'global',
+        kmRate: DEFAULT_APP_CONFIG.km_rate || 5,
+        foodingAllowance: DEFAULT_APP_CONFIG.fooding_allowance || 250,
+        incentives: DEFAULT_APP_CONFIG.incentives
+      } 
+    };
   }
 
   if ((cleanUrl === '/config' || cleanUrl === '/admin/config') && method === 'put') {
+    const formatted = {
+      id: 'global',
+      kmRate: Number(data.kmRate ?? data.km_rate ?? 5),
+      foodingAllowance: Number(data.foodingAllowance ?? data.fooding_allowance ?? 250),
+      incentives: Array.isArray(data.incentives) && data.incentives.length > 0
+        ? data.incentives 
+        : (DEFAULT_APP_CONFIG.incentives || [])
+    };
+    
+    localStorage.setItem('app_config', JSON.stringify(formatted));
+    window.dispatchEvent(new CustomEvent('app_config_updated', { detail: formatted }));
+
     if (supabase) {
       try {
         await supabase
           .from('app_config')
-          .upsert([{ id: 'global', km_rate: data.kmRate, fooding_allowance: data.foodingAllowance, incentives: data.incentives }], { onConflict: 'id' })
+          .upsert([{ 
+            id: 'global', 
+            km_rate: formatted.kmRate, 
+            fooding_allowance: formatted.foodingAllowance, 
+            incentives: formatted.incentives 
+          }], { onConflict: 'id' })
           .select();
       } catch (e) {
         console.warn('[Supabase Config PUT Error]', e);
       }
     }
-    localStorage.setItem('app_config', JSON.stringify(data));
-    return { data: { message: 'Configuration updated successfully', config: data } };
+    return { data: { message: 'Configuration updated successfully', config: formatted } };
   }
 
   // 15. Users Management: GET / PUT

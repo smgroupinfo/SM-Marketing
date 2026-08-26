@@ -28,6 +28,15 @@ export default function IncentivesDashboard({ user }) {
     }
   });
 
+  const [globalConfig, setGlobalConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('app_config');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [incentiveData, setIncentiveData] = useState(() => {
     try {
       const saved = localStorage.getItem('user_incentives');
@@ -79,17 +88,32 @@ export default function IncentivesDashboard({ user }) {
 
   useEffect(() => {
     fetchIncentivesAndData();
+
+    const handleConfigUpdate = (e) => {
+      if (e?.detail) {
+        setGlobalConfig(e.detail);
+      }
+      fetchIncentivesAndData();
+    };
+    window.addEventListener('app_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('app_config_updated', handleConfigUpdate);
   }, []);
 
   const fetchIncentivesAndData = async () => {
     setLoading(true);
     try {
-      const [incRes, visitsRes, firmsRes, shiftsRes] = await Promise.allSettled([
+      const [incRes, visitsRes, firmsRes, shiftsRes, cfgRes] = await Promise.allSettled([
         api.get('/incentives/my'),
         api.get('/visits'),
         api.get('/firms'),
-        api.get('/shifts/history')
+        api.get('/shifts/history'),
+        api.get('/config')
       ]);
+
+      if (cfgRes.status === 'fulfilled' && cfgRes.value.data) {
+        setGlobalConfig(cfgRes.value.data);
+        localStorage.setItem('app_config', JSON.stringify(cfgRes.value.data));
+      }
 
       if (incRes.status === 'fulfilled' && incRes.value.data?.summary) {
         setIncentiveData(incRes.value.data.summary);
@@ -117,9 +141,9 @@ export default function IncentivesDashboard({ user }) {
     }
   };
 
-  // Configured rates for KM & Food Allowance
-  const kmRate = incentiveData?.kmRate || 5;
-  const foodingAllowanceRate = incentiveData?.dailyFoodingAllowance || 250;
+  // Dynamically configured rates for KM & Food Allowance
+  const kmRate = Number(globalConfig?.kmRate ?? globalConfig?.km_rate ?? incentiveData?.kmRate ?? 5);
+  const foodingAllowanceRate = Number(globalConfig?.foodingAllowance ?? globalConfig?.fooding_allowance ?? incentiveData?.dailyFoodingAllowance ?? 250);
 
   // Compute total accumulated verified KMs and Duty days across shifts
   const shiftStats = useMemo(() => {
@@ -251,11 +275,19 @@ export default function IncentivesDashboard({ user }) {
     }
   };
 
-  const productMatrix = incentiveData?.productMatrix || [
-    { id: '1', name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 },
-    { id: '2', name: 'TMT Steel (Tata / Jindal)', unit: 'MT', rate: 50 },
-    { id: '3', name: 'Pipes & Fittings (Astral / Supreme)', unit: 'Pcs', rate: 10 }
-  ];
+  const productMatrix = useMemo(() => {
+    if (Array.isArray(globalConfig?.incentives) && globalConfig.incentives.length > 0) {
+      return globalConfig.incentives;
+    }
+    if (Array.isArray(incentiveData?.productMatrix) && incentiveData.productMatrix.length > 0) {
+      return incentiveData.productMatrix;
+    }
+    return [
+      { id: '1', name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 },
+      { id: '2', name: 'TMT Steel (Tata Tiscon / Jindal)', unit: 'MT', rate: 50 },
+      { id: '3', name: 'Pipes & Fittings', unit: 'Pcs', rate: 10 }
+    ];
+  }, [globalConfig, incentiveData]);
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

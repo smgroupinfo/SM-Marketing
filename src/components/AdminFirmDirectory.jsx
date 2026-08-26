@@ -1612,7 +1612,7 @@ export default function AdminFirmDirectory({ user }) {
                 <input
                   type="text"
                   required
-                  value={editFormData.name}
+                  value={editFormData?.name ?? ''}
                   onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 font-semibold"
                 />
@@ -1623,7 +1623,7 @@ export default function AdminFirmDirectory({ user }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Contact Person</label>
                   <input
                     type="text"
-                    value={editFormData.contactPerson}
+                    value={editFormData?.contactPerson ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, contactPerson: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"
                   />
@@ -1632,7 +1632,7 @@ export default function AdminFirmDirectory({ user }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Phone Number</label>
                   <input
                     type="tel"
-                    value={editFormData.phone}
+                    value={editFormData?.phone ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, phone: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"
                   />
@@ -1644,7 +1644,7 @@ export default function AdminFirmDirectory({ user }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1">GSTIN Number</label>
                   <input
                     type="text"
-                    value={editFormData.gstin}
+                    value={editFormData?.gstin ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, gstin: e.target.value })}
                     placeholder="20AAAAA0000A1Z5"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 font-mono"
@@ -1654,7 +1654,7 @@ export default function AdminFirmDirectory({ user }) {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Brands Handled</label>
                   <input
                     type="text"
-                    value={editFormData.brandsHandled}
+                    value={editFormData?.brandsHandled ?? ''}
                     onChange={(e) => setEditFormData({ ...editFormData, brandsHandled: e.target.value })}
                     placeholder="e.g. Tata Tiscon, UltraTech, ACC"
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"
@@ -1666,7 +1666,7 @@ export default function AdminFirmDirectory({ user }) {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Shop / Yard Full Address</label>
                 <textarea
                   rows={2}
-                  value={editFormData.address}
+                  value={editFormData?.address ?? ''}
                   onChange={(e) => setEditFormData({ ...editFormData, address: e.target.value })}
                   className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"
                 />
@@ -1680,7 +1680,7 @@ export default function AdminFirmDirectory({ user }) {
                     <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Purchase (₹)</label>
                     <input
                       type="number"
-                      value={editFormData.purchasePrice}
+                      value={editFormData?.purchasePrice ?? ''}
                       onChange={(e) => setEditFormData({ ...editFormData, purchasePrice: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
                     />
@@ -1689,7 +1689,7 @@ export default function AdminFirmDirectory({ user }) {
                     <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Retail (₹)</label>
                     <input
                       type="number"
-                      value={editFormData.retailPrice}
+                      value={editFormData?.retailPrice ?? ''}
                       onChange={(e) => setEditFormData({ ...editFormData, retailPrice: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
                     />
@@ -1698,7 +1698,7 @@ export default function AdminFirmDirectory({ user }) {
                     <label className="block text-[10px] uppercase font-bold text-slate-500 mb-0.5">Wholesale (₹)</label>
                     <input
                       type="number"
-                      value={editFormData.wholesalePrice}
+                      value={editFormData?.wholesalePrice ?? ''}
                       onChange={(e) => setEditFormData({ ...editFormData, wholesalePrice: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
                     />
@@ -1718,7 +1718,7 @@ export default function AdminFirmDirectory({ user }) {
                     <input
                       type="number"
                       step="any"
-                      value={editFormData.lat}
+                      value={editFormData?.lat ?? ''}
                       onChange={(e) => setEditFormData({ ...editFormData, lat: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white font-mono"
                     />
@@ -1728,7 +1728,7 @@ export default function AdminFirmDirectory({ user }) {
                     <input
                       type="number"
                       step="any"
-                      value={editFormData.lng}
+                      value={editFormData?.lng ?? ''}
                       onChange={(e) => setEditFormData({ ...editFormData, lng: e.target.value })}
                       className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white font-mono"
                     />

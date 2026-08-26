@@ -25,6 +25,16 @@ export default function ShiftDashboard({ user }) {
     }
   });
 
+  // Global Configuration (KM rate & Fooding allowance)
+  const [globalConfig, setGlobalConfig] = useState(() => {
+    try {
+      const saved = localStorage.getItem('app_config');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   // Start shift inputs
   const [openingOdometer, setOpeningOdometer] = useState('');
   const [openingPhoto, setOpeningPhoto] = useState('');
@@ -44,10 +54,28 @@ export default function ShiftDashboard({ user }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Synchronize initial shift state from backend or localStorage
+  // Synchronize initial shift state from backend or localStorage & fetch global config
   useEffect(() => {
     fetchCurrentShift();
+    fetchConfig();
+
+    const handleConfigUpdate = (e) => {
+      if (e?.detail) setGlobalConfig(e.detail);
+      else fetchConfig();
+    };
+    window.addEventListener('app_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('app_config_updated', handleConfigUpdate);
   }, []);
+
+  const fetchConfig = async () => {
+    try {
+      const res = await api.get('/config');
+      if (res.data) {
+        setGlobalConfig(res.data);
+        localStorage.setItem('app_config', JSON.stringify(res.data));
+      }
+    } catch (e) {}
+  };
 
   const fetchCurrentShift = async () => {
     try {
@@ -212,11 +240,11 @@ export default function ShiftDashboard({ user }) {
       return;
     }
 
-    // Calculate End of Day Metrics
+    // Calculate End of Day Metrics using dynamic Global Configuration
     const totalKms = parseFloat((closingNum - currentOpening).toFixed(1));
     const visitsCount = activeShiftData?.visitsCount || 3; // Realistic visits completed during shift
-    const kmRate = 5;
-    const fooding = 250;
+    const kmRate = Number(globalConfig?.kmRate ?? globalConfig?.km_rate ?? 5);
+    const fooding = Number(globalConfig?.foodingAllowance ?? globalConfig?.fooding_allowance ?? 250);
     const incentiveAmount = (totalKms * kmRate) + fooding + (visitsCount * 50);
 
     setEndOfDaySummary({

@@ -442,7 +442,7 @@ export default function AdminUMS({ user }) {
                   <label className="block text-xs font-bold text-gray-700 mb-1">Full Name</label>
                   <input 
                     type="text" 
-                    value={editForm.fullName} 
+                    value={editForm?.fullName ?? ''} 
                     onChange={e => setEditForm({...editForm, fullName: e.target.value})} 
                     className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" 
                     required 
@@ -452,7 +452,7 @@ export default function AdminUMS({ user }) {
                   <label className="block text-xs font-bold text-gray-700 mb-1">Phone Number</label>
                   <input 
                     type="tel" 
-                    value={editForm.phoneNumber} 
+                    value={editForm?.phoneNumber ?? ''} 
                     onChange={e => setEditForm({...editForm, phoneNumber: e.target.value})} 
                     className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" 
                     required 
@@ -464,7 +464,7 @@ export default function AdminUMS({ user }) {
                 <label className="block text-xs font-bold text-gray-700 mb-1">Email Address</label>
                 <input 
                   type="email" 
-                  value={editForm.email} 
+                  value={editForm?.email ?? ''} 
                   onChange={e => setEditForm({...editForm, email: e.target.value})} 
                   className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" 
                   required 
@@ -475,7 +475,7 @@ export default function AdminUMS({ user }) {
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Duty / Role</label>
                   <select 
-                    value={editForm.role} 
+                    value={editForm?.role ?? 'EXECUTIVE'} 
                     onChange={e => setEditForm({...editForm, role: e.target.value})} 
                     className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
                   >
@@ -488,7 +488,7 @@ export default function AdminUMS({ user }) {
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Account Gateway Status</label>
                   <select 
-                    value={editForm.status} 
+                    value={editForm?.status ?? 'ACTIVE'} 
                     onChange={e => setEditForm({...editForm, status: e.target.value})} 
                     className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 font-semibold"
                   >
@@ -503,7 +503,7 @@ export default function AdminUMS({ user }) {
                 <label className="block text-xs font-bold text-gray-700 mb-1">Assigned Supervisor / Manager</label>
                 <input 
                   type="text" 
-                  value={editForm.supervisor} 
+                  value={editForm?.supervisor ?? ''} 
                   onChange={e => setEditForm({...editForm, supervisor: e.target.value})} 
                   placeholder="e.g. Rajesh Sharma (Zonal Manager)" 
                   className="w-full px-3.5 py-2 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" 

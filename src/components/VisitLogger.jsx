@@ -156,6 +156,16 @@ export default function VisitLogger({ user, onNavigateToShift }) {
     fetchAdminConfig();
     checkShiftStatus();
     captureCurrentGps();
+
+    const handleConfigUpdate = (e) => {
+      if (e?.detail?.incentives) {
+        setConfiguredProducts(e.detail.incentives);
+      } else {
+        fetchAdminConfig();
+      }
+    };
+    window.addEventListener('app_config_updated', handleConfigUpdate);
+    return () => window.removeEventListener('app_config_updated', handleConfigUpdate);
   }, []);
 
   const checkShiftStatus = async () => {
@@ -203,16 +213,42 @@ export default function VisitLogger({ user, onNavigateToShift }) {
 
   const captureCurrentGps = async () => {
     setIsGpsLocating(true);
-    const res = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 8000 });
-    if (res.success && res.coords) {
-      setGpsLocation({
-        lat: Number(res.coords.lat.toFixed(5)),
-        lng: Number(res.coords.lng.toFixed(5))
-      });
-    } else {
-      console.warn('[VisitLogger] Location capture notice:', res.error);
+    try {
+      if (navigator?.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            setGpsLocation({
+              lat: Number(pos.coords.latitude.toFixed(5)),
+              lng: Number(pos.coords.longitude.toFixed(5))
+            });
+            setIsGpsLocating(false);
+          },
+          async () => {
+            const res = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 8000 });
+            if (res.success && res.coords) {
+              setGpsLocation({
+                lat: Number(res.coords.lat.toFixed(5)),
+                lng: Number(res.coords.lng.toFixed(5))
+              });
+            }
+            setIsGpsLocating(false);
+          },
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 }
+        );
+        return;
+      }
+      const res = await captureLiveLocation({ preferHighAccuracy: true, timeoutMs: 8000 });
+      if (res.success && res.coords) {
+        setGpsLocation({
+          lat: Number(res.coords.lat.toFixed(5)),
+          lng: Number(res.coords.lng.toFixed(5))
+        });
+      }
+    } catch (e) {
+      console.warn('[VisitLogger] GPS notice:', e);
+    } finally {
+      setIsGpsLocating(false);
     }
-    setIsGpsLocating(false);
   };
 
   const fetchVisitsAndFirms = async () => {
@@ -583,16 +619,16 @@ export default function VisitLogger({ user, onNavigateToShift }) {
     const parsedTxnAmount = parseFloat(transactionAmount) || 0;
 
     // Compute authoritative Geofence Cross-Check status
-    let geofenceStatus = 'UNREGISTERED_LOCATION';
+    let geofenceStatus = visitPurpose === 'Sales' ? 'FIELD_SALES_ORDER' : 'UNREGISTERED_LOCATION';
     let distanceFromFirm = null;
     if (matchedFirm && distanceToMatchedFirm !== null) {
       distanceFromFirm = distanceToMatchedFirm;
       if (distanceToMatchedFirm <= 250) {
         geofenceStatus = 'VERIFIED_ON_SITE';
       } else if (distanceToMatchedFirm <= 1500) {
-        geofenceStatus = 'VICINITY';
+        geofenceStatus = visitPurpose === 'Sales' ? 'FIELD_SALES_ORDER' : 'VICINITY';
       } else {
-        geofenceStatus = 'DISCREPANCY';
+        geofenceStatus = visitPurpose === 'Sales' ? 'REMOTE_SALES_ORDER' : 'DISCREPANCY';
       }
     }
 
@@ -981,7 +1017,32 @@ export default function VisitLogger({ user, onNavigateToShift }) {
               {/* LIVE GEOLOCATION CROSS-CHECK STATUS */}
               {clientName.trim() && (
                 <div className="mt-2">
-                  {matchedFirm ? (
+                  {visitPurpose === 'Sales' ? (
+                    <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-blue-900 font-bold">
+                        <Navigation size={16} className="text-blue-600 shrink-0" />
+                        <span>
+                          {matchedFirm && distanceToMatchedFirm !== null && distanceToMatchedFirm <= 250
+                            ? `On-Site Order: Verified within ${distanceToMatchedFirm}m of dealer yard`
+                            : `Remote / Field Sales Order: Order booking allowed from anywhere • Live GPS tracked (${gpsLocation.lat}, ${gpsLocation.lng})`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={captureCurrentGps}
+                          disabled={isGpsLocating}
+                          className="px-2 py-0.5 rounded bg-white hover:bg-blue-100 text-blue-800 border border-blue-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw size={10} className={isGpsLocating ? 'animate-spin' : ''} />
+                          {isGpsLocating ? 'Locating...' : 'Refresh GPS'}
+                        </button>
+                        <span className="px-2 py-0.5 rounded-full bg-blue-200 text-blue-900 font-extrabold text-[10px] uppercase">
+                          GPS ACTIVE
+                        </span>
+                      </div>
+                    </div>
+                  ) : matchedFirm ? (
                     matchedFirm.location?.lat && matchedFirm.location?.lng ? (
                       distanceToMatchedFirm !== null ? (
                         distanceToMatchedFirm <= 250 ? (
@@ -1137,7 +1198,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                           Product (From Config) <span className="text-rose-500">*</span>
                         </label>
                         <select
-                          value={item.productName}
+                          value={item.productName || ''}
                           onChange={(e) => handleUpdateSalesProduct(item.id, 'productName', e.target.value)}
                           className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
                         >
@@ -1155,14 +1216,14 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                       {/* Quantity */}
                       <div>
                         <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">
-                          Quantity ({item.unit}) <span className="text-rose-500">*</span>
+                          Quantity ({item.unit || 'Units'}) <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="number"
                           step="any"
                           min="0.1"
                           placeholder="e.g. 100"
-                          value={item.quantity}
+                          value={item.quantity ?? ''}
                           onChange={(e) => handleUpdateSalesProduct(item.id, 'quantity', e.target.value)}
                           className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
                           required
@@ -1180,7 +1241,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                             step="any"
                             min="1"
                             placeholder="₹ 0.00"
-                            value={item.billingAmount}
+                            value={item.billingAmount ?? ''}
                             onChange={(e) => handleUpdateSalesProduct(item.id, 'billingAmount', e.target.value)}
                             className="w-full pl-6 pr-3 py-2 text-xs font-black border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 text-slate-900"
                             required
@@ -1366,7 +1427,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                     Payment Method <span className="text-rose-500">*</span>
                   </label>
                   <select
-                    value={paymentMethod}
+                    value={paymentMethod || 'UPI'}
                     onChange={(e) => setPaymentMethod(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                     required
@@ -1390,7 +1451,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                       step="any"
                       min="1"
                       placeholder="₹ 0.00"
-                      value={transactionAmount}
+                      value={transactionAmount ?? ''}
                       onChange={(e) => setTransactionAmount(e.target.value)}
                       className="w-full pl-8 pr-3 py-2.5 text-sm font-black border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 text-emerald-950 font-mono"
                       required
@@ -1406,7 +1467,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                   </label>
                   <input
                     type="date"
-                    value={transactionDate}
+                    value={transactionDate || ''}
                     onChange={(e) => setTransactionDate(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                     required
@@ -1421,7 +1482,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                   <input
                     type="text"
                     placeholder="e.g. UTR-928410 or CHQ-0032"
-                    value={transactionId}
+                    value={transactionId || ''}
                     onChange={(e) => setTxnId(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm font-mono font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                     required
@@ -1465,7 +1526,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                   <input
                     type="text"
                     placeholder="e.g. Price review, Brand display board, New credit terms..."
-                    value={discussionTopic}
+                    value={discussionTopic || ''}
                     onChange={(e) => setDiscussionTopic(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-purple-500"
                   />
@@ -1477,7 +1538,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                   </label>
                   <input
                     type="date"
-                    value={nextFollowUpDate}
+                    value={nextFollowUpDate || ''}
                     onChange={(e) => setNextFollowUpDate(e.target.value)}
                     className="w-full px-3.5 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-purple-500"
                   />
@@ -1501,7 +1562,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                     ? 'Invoice reference numbers, bank branch remarks, clearing notes...'
                     : 'Client discussion summary, market feedback, competitor prices, action items...'
                 }
-                value={note}
+                value={note || ''}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
               />

@@ -587,7 +587,7 @@ export default function FirmOnboarding({ user }) {
                       <input
                         type="text"
                         placeholder="e.g. Cement (UltraTech) or TMT 12mm"
-                        value={p.productName}
+                        value={p.productName ?? ''}
                         onChange={(e) => handleUpdateDealerProduct(p.id, 'productName', e.target.value)}
                         className="w-full px-3 py-2 text-xs font-bold border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500"
                         required
@@ -603,7 +603,7 @@ export default function FirmOnboarding({ user }) {
                         type="number"
                         step="any"
                         placeholder="₹ 320"
-                        value={p.purchasePrice}
+                        value={p.purchasePrice ?? ''}
                         onChange={(e) => handleUpdateDealerProduct(p.id, 'purchasePrice', e.target.value)}
                         className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
                       />
@@ -618,7 +618,7 @@ export default function FirmOnboarding({ user }) {
                         type="number"
                         step="any"
                         placeholder="₹ 330"
-                        value={p.forPrice}
+                        value={p.forPrice ?? ''}
                         onChange={(e) => handleUpdateDealerProduct(p.id, 'forPrice', e.target.value)}
                         className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
                       />
@@ -633,7 +633,7 @@ export default function FirmOnboarding({ user }) {
                         type="number"
                         step="any"
                         placeholder="₹ 335"
-                        value={p.wholesalePrice}
+                        value={p.wholesalePrice ?? ''}
                         onChange={(e) => handleUpdateDealerProduct(p.id, 'wholesalePrice', e.target.value)}
                         className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
                       />
@@ -648,7 +648,7 @@ export default function FirmOnboarding({ user }) {
                         type="number"
                         step="any"
                         placeholder="₹ 350"
-                        value={p.retailPrice}
+                        value={p.retailPrice ?? ''}
                         onChange={(e) => handleUpdateDealerProduct(p.id, 'retailPrice', e.target.value)}
                         className="w-full px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg bg-white"
                       />

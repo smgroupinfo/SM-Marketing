@@ -5,7 +5,7 @@ import {
   TrendingUp, IndianRupee, User, Store, MapPin, Calendar, Settings, Users, 
   Activity, BarChart, Settings2, Download, AlertCircle, AlertTriangle, Camera, 
   Database, ShieldAlert, Lock, RefreshCw, Smartphone, ShieldCheck, ArrowRight,
-  Bell, Send
+  Bell, Send, Trash2, Plus
 } from 'lucide-react';
 import AdminUMS from './components/AdminUMS';
 import AdminReports from './components/AdminReports';
@@ -113,7 +113,7 @@ import { supabase, SUPABASE_URL } from './lib/supabase';
 // ==========================================
 
 function AdminConfig({ user }) {
-  const [config, setConfig] = useState({ kmRate: '', foodingAllowance: '', incentives: [] });
+  const [config, setConfig] = useState({ kmRate: 5, foodingAllowance: 250, incentives: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -124,13 +124,22 @@ function AdminConfig({ user }) {
   const fetchConfig = async () => {
     try {
       const res = await api.get('/admin/config');
-      let parsedConfig = res.data;
-      if (!Array.isArray(parsedConfig.incentives)) {
-        parsedConfig.incentives = Object.entries(parsedConfig.incentives || {}).map(([name, rate], idx) => ({
-          id: String(idx+1), name, unit: 'Units', rate
+      const parsedConfig = res.data || {};
+      let incs = parsedConfig.incentives;
+      if (!Array.isArray(incs)) {
+        incs = Object.entries(incs || {}).map(([name, rate], idx) => ({
+          id: String(idx+1), name, unit: 'Units', rate: Number(rate) || 0
         }));
       }
-      setConfig(parsedConfig);
+      setConfig({
+        kmRate: Number(parsedConfig.kmRate ?? parsedConfig.km_rate ?? 5),
+        foodingAllowance: Number(parsedConfig.foodingAllowance ?? parsedConfig.fooding_allowance ?? 250),
+        incentives: incs.length > 0 ? incs : [
+          { id: '1', name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 },
+          { id: '2', name: 'TMT Steel (Tata Tiscon / Jindal)', unit: 'MT', rate: 50 },
+          { id: '3', name: 'Pipes & Fittings', unit: 'Pcs', rate: 10 }
+        ]
+      });
     } catch (err) {
       console.error('Failed to fetch admin config', err);
     } finally {
@@ -143,10 +152,23 @@ function AdminConfig({ user }) {
     setSaving(true);
     setMessage('');
     try {
-      const res = await api.put('/admin/config', config);
-      setConfig(res.data.config);
-      setMessage('Configuration saved successfully. Globally applied.');
-      setTimeout(() => setMessage(''), 3000);
+      const payload = {
+        kmRate: parseFloat(config.kmRate) || 0,
+        foodingAllowance: parseFloat(config.foodingAllowance) || 0,
+        incentives: config.incentives.map(item => ({
+          id: item.id || Date.now().toString(),
+          name: item.name.trim(),
+          unit: item.unit || 'Units',
+          rate: parseFloat(item.rate) || 0
+        }))
+      };
+      const res = await api.put('/admin/config', payload);
+      const savedConfig = res.data?.config || payload;
+      setConfig(savedConfig);
+      localStorage.setItem('app_config', JSON.stringify(savedConfig));
+      window.dispatchEvent(new CustomEvent('app_config_updated', { detail: savedConfig }));
+      setMessage(`Configuration saved: ₹${savedConfig.kmRate}/km travel reimbursement, ₹${savedConfig.foodingAllowance}/day food allowance, and ${savedConfig.incentives.length} product incentives globally active.`);
+      setTimeout(() => setMessage(''), 4000);
     } catch (err) {
       setMessage('Error saving configuration.');
     } finally {
@@ -154,11 +176,22 @@ function AdminConfig({ user }) {
     }
   };
 
+  const updateProductItem = (id, field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      incentives: prev.incentives.map(p => p.id === id ? { ...p, [field]: value } : p)
+    }));
+  };
+
   const addProduct = () => {
     if (!newProduct.name || !newProduct.rate) return;
     setConfig(prev => ({
       ...prev,
-      incentives: [...prev.incentives, { ...newProduct, id: Date.now().toString(), rate: parseFloat(newProduct.rate) }]
+      incentives: [...prev.incentives, { 
+        ...newProduct, 
+        id: 'p-' + Date.now().toString(), 
+        rate: parseFloat(newProduct.rate) || 0 
+      }]
     }));
     setNewProduct({ name: '', unit: 'Bags', rate: '' });
   };
@@ -176,7 +209,7 @@ function AdminConfig({ user }) {
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
         <h3 className="text-lg font-bold text-gray-900 mb-2">Rate & Allowance Configurations</h3>
-        <p className="text-sm text-gray-500 mb-6">Values updated here instantly reflect across all executive devices.</p>
+        <p className="text-sm text-gray-500 mb-6">Values updated here instantly reflect across all executive devices, shift calculations, and visit forms.</p>
 
         {message && (
           <div className={`p-4 rounded-xl mb-6 text-sm font-medium ${message.includes('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
@@ -185,40 +218,92 @@ function AdminConfig({ user }) {
         )}
 
         <form onSubmit={handleSave} className="space-y-6">
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4 max-w-lg">
-            <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-2">Reimbursement Settings</h4>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Per-KM Reimbursement Rate (₹)</label>
-              <input 
-                type="number" step="0.1"
-                value={config.kmRate}
-                onChange={(e) => setConfig({...config, kmRate: parseFloat(e.target.value) || 0})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
-                required 
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Daily Fooding Allowance (₹)</label>
-              <input 
-                type="number" step="1"
-                value={config.foodingAllowance}
-                onChange={(e) => setConfig({...config, foodingAllowance: parseFloat(e.target.value) || 0})}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" 
-                required 
-              />
+          <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4 max-w-xl">
+            <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-2">Reimbursement & Daily Allowances</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Per-KM Travel Reimbursement (₹)
+                </label>
+                <div className="relative">
+                  <input 
+                    type="number" step="0.1" min="0"
+                    value={config.kmRate ?? ''}
+                    onChange={(e) => setConfig({...config, kmRate: e.target.value})}
+                    className="w-full pl-8 pr-4 py-2 text-sm font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white" 
+                    required 
+                  />
+                  <span className="absolute left-3 top-2.5 text-xs text-gray-400 font-bold">₹</span>
+                </div>
+                <span className="text-[11px] text-gray-500 mt-1 block">Applied to verified opening/closing odometer KMs</span>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Daily Fooding Allowance (₹)
+                </label>
+                <div className="relative">
+                  <input 
+                    type="number" step="1" min="0"
+                    value={config.foodingAllowance ?? ''}
+                    onChange={(e) => setConfig({...config, foodingAllowance: e.target.value})}
+                    className="w-full pl-8 pr-4 py-2 text-sm font-bold border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white" 
+                    required 
+                  />
+                  <span className="absolute left-3 top-2.5 text-xs text-gray-400 font-bold">₹</span>
+                </div>
+                <span className="text-[11px] text-gray-500 mt-1 block">Fixed per active duty day completed</span>
+              </div>
             </div>
           </div>
 
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
-            <h4 className="font-semibold text-gray-800 border-b border-gray-200 pb-2">Advanced Product Incentive Matrix</h4>
+          <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-2">
+              <h4 className="font-semibold text-gray-800">Advanced Product Incentive Matrix</h4>
+              <span className="text-xs text-gray-500">{config.incentives.length} Configured Products</span>
+            </div>
+            
             <div className="space-y-2">
               {config.incentives.map((product) => (
-                <div key={product.id} className="flex items-center gap-4 bg-white p-3 rounded-lg border border-gray-200">
-                  <div className="flex-1 font-medium text-gray-900">{product.name}</div>
-                  <div className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">{product.unit}</div>
-                  <div className="font-bold text-green-600 w-24 text-right">₹{product.rate}</div>
-                  <button type="button" onClick={() => removeProduct(product.id)} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                    <Square size={16} /> 
+                <div key={product.id} className="flex flex-wrap items-center gap-3 bg-white p-3 rounded-lg border border-gray-200">
+                  <div className="flex-1 min-w-[180px]">
+                    <input
+                      type="text"
+                      value={product.name ?? ''}
+                      onChange={(e) => updateProductItem(product.id, 'name', e.target.value)}
+                      className="w-full text-sm font-semibold text-gray-900 border-b border-transparent hover:border-gray-300 focus:border-blue-500 focus:outline-hidden px-1 py-0.5"
+                    />
+                  </div>
+                  <div className="w-28">
+                    <select
+                      value={product.unit ?? 'Units'}
+                      onChange={(e) => updateProductItem(product.id, 'unit', e.target.value)}
+                      className="w-full text-xs text-gray-700 bg-gray-100 px-2 py-1.5 rounded border border-gray-200 font-medium"
+                    >
+                      <option value="Bags">Bags</option>
+                      <option value="MT">MT</option>
+                      <option value="Pcs">Pcs</option>
+                      <option value="Kgs">Kgs</option>
+                      <option value="Units">Units</option>
+                    </select>
+                  </div>
+                  <div className="w-32 flex items-center gap-1">
+                    <span className="text-xs text-emerald-700 font-bold">₹</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={product.rate ?? ''}
+                      onChange={(e) => updateProductItem(product.id, 'rate', e.target.value)}
+                      className="w-full text-sm font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200"
+                    />
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => removeProduct(product.id)} 
+                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Remove product"
+                  >
+                    <Trash2 size={16} /> 
                   </button>
                 </div>
               ))}
@@ -226,11 +311,13 @@ function AdminConfig({ user }) {
             </div>
 
             <div className="bg-white p-4 rounded-lg border border-blue-100 mt-4 space-y-4">
-              <h5 className="text-sm font-semibold text-blue-800">Add Custom Product</h5>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <h5 className="text-xs font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
+                <Plus size={14} /> Add Custom Product to Incentive Catalog
+              </h5>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Product Name</label>
-                  <input type="text" value={newProduct.name} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="e.g. Paint" className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg" />
+                  <input type="text" value={newProduct.name ?? ''} onChange={e => setNewProduct({...newProduct, name: e.target.value})} placeholder="e.g. White Cement, TMT 12mm" className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Unit Type</label>
@@ -239,13 +326,14 @@ function AdminConfig({ user }) {
                     <option value="Kgs">Kgs</option>
                     <option value="Pcs">Pcs</option>
                     <option value="MT">MT</option>
+                    <option value="Units">Units</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Incentive Rate (₹)</label>
                   <div className="flex gap-2">
-                    <input type="number" value={newProduct.rate} onChange={e => setNewProduct({...newProduct, rate: e.target.value})} placeholder="Rate" className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg" />
-                    <button type="button" onClick={addProduct} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Add</button>
+                    <input type="number" step="any" min="0" value={newProduct.rate ?? ''} onChange={e => setNewProduct({...newProduct, rate: e.target.value})} placeholder="Rate (e.g. 15)" className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg" />
+                    <button type="button" onClick={addProduct} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium shrink-0">Add</button>
                   </div>
                 </div>
               </div>
@@ -255,7 +343,7 @@ function AdminConfig({ user }) {
           <button 
             type="submit" 
             disabled={saving}
-            className="w-full max-w-lg bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-xl transition-colors mt-2"
+            className="w-full max-w-lg bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3 px-4 rounded-xl shadow transition-all mt-2"
           >
             {saving ? 'Saving Configurations...' : 'Save Global Configurations'}
           </button>
