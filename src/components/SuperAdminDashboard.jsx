@@ -7,6 +7,7 @@ import {
   Sliders, Check, Copy, AlertTriangle, ArrowRight, Zap, Tag, QrCode, LogOut
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { directSupabaseOnboardTenantClient } from '../lib/supabaseDataService';
 import SuperAdminGuard from './SuperAdminGuard';
 import SuperAdminSubscriptionsAndPricing from './SuperAdminSubscriptionsAndPricing';
 
@@ -28,6 +29,7 @@ export default function SuperAdminDashboard({ user, onBack }) {
   const [isBillingModalOpen, setIsBillingModalOpen] = useState(false);
   const [isSeatsModalOpen, setIsSeatsModalOpen] = useState(false);
   const [activeTenantForModal, setActiveTenantForModal] = useState(null);
+  const [createdCredentialsModal, setCreatedCredentialsModal] = useState(null);
 
   // Billing Modal Form State
   const [modalUpiId, setModalUpiId] = useState('');
@@ -42,7 +44,10 @@ export default function SuperAdminDashboard({ user, onBack }) {
   const [isOnboardingExpanded, setIsOnboardingExpanded] = useState(false);
   const [formData, setFormData] = useState({
     companyName: '',
+    adminName: '',
     adminPhone: '',
+    adminEmail: '',
+    adminPassword: '',
     maxSeats: 10,
     upiMerchantId: 'merchant@upi',
     subscriptionDays: 365,
@@ -135,6 +140,10 @@ export default function SuperAdminDashboard({ user, onBack }) {
       return;
     }
 
+    const password = (formData.adminPassword || 'client123').trim();
+    const cleanEmail = formData.adminEmail ? formData.adminEmail.trim().toLowerCase() : `${cleanPhone}@client.saas`;
+    const cleanAdminName = (formData.adminName || formData.companyName.trim() + ' Admin').trim();
+
     if (!formData.upiMerchantId.trim() || !formData.upiMerchantId.includes('@')) {
       setAlertBanner({ type: 'error', message: 'Valid UPI Merchant VPA (e.g. company@icici) is required.' });
       return;
@@ -142,53 +151,35 @@ export default function SuperAdminDashboard({ user, onBack }) {
 
     setFormSubmitting(true);
     const durationDays = parseInt(formData.subscriptionDays, 10) || 365;
-    const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString();
-
-    const newTenantPayload = {
-      id: 'tenant_' + Date.now(),
-      name: formData.companyName.trim(),
-      admin_phone: cleanPhone,
-      max_seats: parseInt(formData.maxSeats, 10) || 10,
-      used_seats: 1, // 1 initial seat for the onboarded administrator
-      upi_id: formData.upiMerchantId.trim().toLowerCase(),
-      subscription_duration_days: durationDays,
-      subscription_expires_at: expiresAt,
-      card_payments_enabled: Boolean(formData.cardPaymentsEnabled),
-      status: 'ACTIVE',
-      created_at: new Date().toISOString()
-    };
 
     try {
-      let inserted = null;
+      const clientPayload = {
+        companyName: formData.companyName.trim(),
+        adminFullName: cleanAdminName,
+        adminPhone: cleanPhone,
+        adminEmail: cleanEmail,
+        password: password,
+        maxSeats: parseInt(formData.maxSeats, 10) || 10,
+        planTier: 'Business Growth',
+        planMrr: 11999,
+        upiId: formData.upiMerchantId.trim().toLowerCase(),
+        cardPaymentsEnabled: Boolean(formData.cardPaymentsEnabled),
+        subscriptionDays: durationDays
+      };
 
-      if (supabase) {
-        // Direct clean async/await insert
-        const { data, error } = await supabase
-          .from('tenants')
-          .insert([newTenantPayload])
-          .select();
+      const { tenant } = await directSupabaseOnboardTenantClient(clientPayload);
 
-        if (error) {
-          console.warn('[Supabase Insert Error]', error.message);
-          // Still insert into local cache to ensure uninterrupted operation
-          inserted = newTenantPayload;
-        } else if (data && data.length > 0) {
-          inserted = data[0];
-        }
-      }
-
-      if (!inserted) {
-        inserted = newTenantPayload;
-      }
-
-      const updatedList = [inserted, ...tenants];
+      const updatedList = [tenant, ...tenants.filter(t => t.id !== tenant.id)];
       setTenants(updatedList);
       localStorage.setItem('saas_tenants_cache', JSON.stringify(updatedList));
 
       // Reset form
       setFormData({
         companyName: '',
+        adminName: '',
         adminPhone: '',
+        adminEmail: '',
+        adminPassword: '',
         maxSeats: 10,
         upiMerchantId: 'merchant@upi',
         subscriptionDays: 365,
@@ -196,9 +187,19 @@ export default function SuperAdminDashboard({ user, onBack }) {
       });
       setIsOnboardingExpanded(false);
 
+      setCreatedCredentialsModal({
+        companyName: tenant.name,
+        adminName: cleanAdminName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        password: password,
+        maxSeats: tenant.max_seats,
+        planTier: 'Business Growth'
+      });
+
       setAlertBanner({
         type: 'success',
-        message: `Successfully onboarded "${inserted.name}" with ${inserted.max_seats} user seats and verified UPI gateway (${inserted.upi_id}).`
+        message: `Successfully onboarded "${tenant.name}" and provisioned Admin login for ${cleanPhone}.`
       });
     } catch (err) {
       console.error('[Onboarding Exception]', err);
@@ -647,10 +648,24 @@ export default function SuperAdminDashboard({ user, onBack }) {
                   />
                 </div>
 
+                {/* Primary Admin Name */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Primary Admin Full Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Vikram Sharma"
+                    value={formData.adminName}
+                    onChange={(e) => setFormData({ ...formData, adminName: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder:text-slate-500 focus:ring-2 focus:ring-amber-400 focus:border-transparent"
+                  />
+                </div>
+
                 {/* Admin Phone Number */}
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-slate-300">
-                    Admin Phone Number *
+                    Admin Mobile Number (Login ID) *
                   </label>
                   <div className="relative">
                     <Phone size={14} className="absolute left-3.5 top-3.5 text-slate-500" />
@@ -661,6 +676,50 @@ export default function SuperAdminDashboard({ user, onBack }) {
                       value={formData.adminPhone}
                       onChange={(e) => setFormData({ ...formData, adminPhone: e.target.value })}
                       className="w-full pl-9 pr-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder:text-slate-500 focus:ring-2 focus:ring-amber-400 focus:border-transparent font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Admin Email */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-300">
+                    Admin Email Address (Login ID)
+                  </label>
+                  <input
+                    type="email"
+                    placeholder="admin@clientcompany.com"
+                    value={formData.adminEmail}
+                    onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-white placeholder:text-slate-500 focus:ring-2 focus:ring-amber-400 focus:border-transparent font-mono"
+                  />
+                </div>
+
+                {/* Initial Password */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-slate-300">
+                      Initial Login Password *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const generated = 'pass' + Math.floor(100000 + Math.random() * 900000);
+                        setFormData(prev => ({ ...prev, adminPassword: generated }));
+                      }}
+                      className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                    >
+                      Generate Auto
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <Lock size={14} className="absolute left-3.5 top-3.5 text-slate-500" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. client123"
+                      value={formData.adminPassword}
+                      onChange={(e) => setFormData({ ...formData, adminPassword: e.target.value })}
+                      className="w-full pl-9 pr-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs sm:text-sm text-amber-300 placeholder:text-slate-500 focus:ring-2 focus:ring-amber-400 focus:border-transparent font-mono"
                     />
                   </div>
                 </div>
@@ -1132,6 +1191,81 @@ export default function SuperAdminDashboard({ user, onBack }) {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MODAL 3: CREATED CREDENTIALS CONFIRMATION                                  */}
+        {/* ========================================================================= */}
+        {createdCredentialsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in zoom-in-95 duration-200">
+            <div className="w-full max-w-md bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-2xl space-y-5 text-slate-200">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={22} className="text-emerald-400" />
+                  <h3 className="font-bold text-white text-base">Client Onboarded Successfully</h3>
+                </div>
+                <button onClick={() => setCreatedCredentialsModal(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+                <div className="text-xs text-slate-400 font-medium">
+                  Client Organization: <strong className="text-white text-sm block">{createdCredentialsModal.companyName}</strong>
+                </div>
+
+                <div className="space-y-2 pt-2 border-t border-slate-800/80 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Admin Full Name:</span>
+                    <span className="font-bold text-white">{createdCredentialsModal.adminName}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Login Phone / User ID:</span>
+                    <span className="font-mono font-bold text-amber-400">{createdCredentialsModal.phone}</span>
+                  </div>
+                  {createdCredentialsModal.email && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-400">Login Email:</span>
+                      <span className="font-mono text-slate-200">{createdCredentialsModal.email}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between bg-amber-950/30 p-2 rounded-lg border border-amber-500/20">
+                    <span className="text-amber-300 font-bold">Password:</span>
+                    <span className="font-mono font-bold text-amber-200 tracking-wider text-sm">{createdCredentialsModal.password}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Allocated Seats:</span>
+                    <span className="font-bold text-emerald-400">{createdCredentialsModal.maxSeats} Users</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-xs text-emerald-300">
+                ✓ The client administrator can now log in using their registered phone/email and password to create subordinate logins.
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const text = `*${createdCredentialsModal.companyName} Login Credentials*\nLogin ID: ${createdCredentialsModal.phone}\nEmail: ${createdCredentialsModal.email}\nPassword: ${createdCredentialsModal.password}\nRole: Administrator (${createdCredentialsModal.maxSeats} Seats)`;
+                    navigator.clipboard?.writeText(text);
+                    setAlertBanner({ type: 'success', message: 'Credentials copied to clipboard!' });
+                  }}
+                  className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Copy size={16} /> Copy Credentials
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreatedCredentialsModal(null)}
+                  className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
             </div>
           </div>
         )}

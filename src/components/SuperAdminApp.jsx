@@ -9,6 +9,8 @@ import {
   Sliders, ShieldCheck, QrCode, Send, Download, Terminal, ChevronRight
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { directSupabaseOnboardTenantClient } from '../lib/supabaseDataService';
+import { api } from '../lib/api';
 
 // Safe JSON parser helper
 function safeJson(str, fallback = null) {
@@ -66,6 +68,7 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
 
   // Modals & Forms
   const [isOnboardModalOpen, setIsOnboardModalOpen] = useState(false);
+  const [createdCredentialsModal, setCreatedCredentialsModal] = useState(null);
   const [editingTenant, setEditingTenant] = useState(null);
   const [billingTenant, setBillingTenant] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -74,8 +77,10 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
   // New Tenant Form
   const [newCompany, setNewCompany] = useState({
     name: '',
+    admin_name: '',
     admin_phone: '',
     owner_email: '',
+    admin_password: '',
     max_seats: 10,
     plan_tier: 'Business Growth',
     plan_mrr: 11999,
@@ -193,47 +198,74 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
       return;
     }
 
-    const tenantPayload = {
-      id: 't_' + Date.now(),
-      name: newCompany.name.trim(),
-      admin_phone: newCompany.admin_phone.trim(),
-      owner_email: newCompany.owner_email.trim() || `${newCompany.admin_phone}@client.saas`,
-      max_seats: parseInt(newCompany.max_seats, 10) || 10,
-      used_seats: 1, // Onboarding automatically consumes 1 seat for the primary admin
-      status: 'ACTIVE',
-      plan_tier: newCompany.plan_tier,
-      plan_mrr: parseInt(newCompany.plan_mrr, 10) || 11999,
-      upi_id: newCompany.upi_id.trim() || 'merchant@upi',
-      card_gateway_enabled: newCompany.card_gateway_enabled,
-      contract_expires_at: newCompany.contract_expires_at || '2027-09-01',
-      created_at: new Date().toISOString().substring(0, 10)
-    };
+    const cleanPhone = newCompany.admin_phone.trim();
+    const cleanEmail = newCompany.owner_email.trim() || `${cleanPhone}@client.saas`;
+    const cleanCompanyName = newCompany.name.trim();
+    const cleanAdminName = (newCompany.admin_name || cleanCompanyName + ' Admin').trim();
+    const password = (newCompany.admin_password || 'client123').trim();
 
     try {
-      if (supabase) {
-        await supabase.from('tenants').insert([tenantPayload]);
-      }
-    } catch (err) {
-      console.warn('Supabase tenant insert fallback:', err);
-    }
+      const clientData = {
+        companyName: cleanCompanyName,
+        adminFullName: cleanAdminName,
+        adminPhone: cleanPhone,
+        adminEmail: cleanEmail,
+        password: password,
+        maxSeats: parseInt(newCompany.max_seats, 10) || 10,
+        planTier: newCompany.plan_tier,
+        planMrr: parseInt(newCompany.plan_mrr, 10) || 11999,
+        upiId: newCompany.upi_id.trim() || 'merchant@upi',
+        cardPaymentsEnabled: newCompany.card_gateway_enabled,
+        subscriptionDays: 365
+      };
 
-    setTenants(prev => [tenantPayload, ...prev]);
-    setIsOnboardModalOpen(false);
-    showToast(`Successfully onboarded company: ${tenantPayload.name}`, 'success');
-    recordLog('TENANT_ONBOARDED', tenantPayload.name, `New company onboarded with ${tenantPayload.max_seats} seats (${tenantPayload.plan_tier}).`);
-    
-    // Reset
-    setNewCompany({
-      name: '',
-      admin_phone: '',
-      owner_email: '',
-      max_seats: 10,
-      plan_tier: 'Business Growth',
-      plan_mrr: 11999,
-      upi_id: '',
-      card_gateway_enabled: true,
-      contract_expires_at: '2027-09-01'
-    });
+      // 1. Direct Supabase / local persistence helper
+      const { tenant, user: createdUser } = await directSupabaseOnboardTenantClient(clientData);
+
+      // 2. Also inform API endpoint if online
+      try {
+        await api.post('/super-admin/tenants/onboard', clientData);
+      } catch (apiErr) {
+        console.warn('API onboard notice:', apiErr.message);
+      }
+
+      setTenants(prev => [tenant, ...prev.filter(t => t.id !== tenant.id)]);
+      if (createdUser) {
+        setUsers(prev => [createdUser, ...prev.filter(u => u.phone_number !== cleanPhone)]);
+      }
+
+      setIsOnboardModalOpen(false);
+      setCreatedCredentialsModal({
+        companyName: cleanCompanyName,
+        adminName: cleanAdminName,
+        phone: cleanPhone,
+        email: cleanEmail,
+        password: password,
+        maxSeats: tenant.max_seats,
+        planTier: tenant.plan_tier
+      });
+
+      showToast(`Successfully onboarded company: ${cleanCompanyName}`, 'success');
+      recordLog('TENANT_ONBOARDED', cleanCompanyName, `Client onboarded. Primary Admin: ${cleanPhone} (${cleanAdminName}). Seats: ${tenant.max_seats}.`);
+
+      // Reset Form
+      setNewCompany({
+        name: '',
+        admin_name: '',
+        admin_phone: '',
+        owner_email: '',
+        admin_password: '',
+        max_seats: 10,
+        plan_tier: 'Business Growth',
+        plan_mrr: 11999,
+        upi_id: '',
+        card_gateway_enabled: true,
+        contract_expires_at: '2027-09-01'
+      });
+    } catch (err) {
+      console.error('Failed to create tenant', err);
+      showToast('Error during onboarding: ' + (err.message || 'Unknown error'), 'error');
+    }
   };
 
   const handleToggleTenantStatus = (tenant) => {
@@ -1270,7 +1302,18 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="block font-bold text-slate-300">Owner / Admin Mobile Number *</label>
+                  <label className="block font-bold text-slate-300">Primary Admin Full Name</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Vikram Sharma"
+                    value={newCompany.admin_name}
+                    onChange={(e) => setNewCompany({ ...newCompany, admin_name: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-hidden focus:border-amber-400"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-300">Admin Mobile Number (User ID) *</label>
                   <input
                     type="tel"
                     required
@@ -1280,17 +1323,41 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-300">Admin Email Address (User ID)</label>
+                  <input
+                    type="email"
+                    placeholder="admin@clientcompany.com"
+                    value={newCompany.owner_email}
+                    onChange={(e) => setNewCompany({ ...newCompany, owner_email: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
+                  />
+                </div>
 
                 <div className="space-y-1.5">
-                  <label className="block font-bold text-slate-300">Max Seat Allocation *</label>
+                  <div className="flex items-center justify-between">
+                    <label className="block font-bold text-slate-300">Initial Login Password *</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const generated = 'pass' + Math.floor(100000 + Math.random() * 900000);
+                        setNewCompany(prev => ({ ...prev, admin_password: generated }));
+                      }}
+                      className="text-[10px] text-amber-400 hover:underline cursor-pointer"
+                    >
+                      Generate Auto
+                    </button>
+                  </div>
                   <input
-                    type="number"
-                    min="1"
-                    max="1000"
+                    type="text"
                     required
-                    value={newCompany.max_seats}
-                    onChange={(e) => setNewCompany({ ...newCompany, max_seats: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
+                    placeholder="Enter password (e.g. client123)"
+                    value={newCompany.admin_password}
+                    onChange={(e) => setNewCompany({ ...newCompany, admin_password: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-amber-300 font-mono focus:outline-hidden focus:border-amber-400"
                   />
                 </div>
               </div>
@@ -1314,6 +1381,21 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
                 </div>
 
                 <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-300">Max Seat Allocation *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    required
+                    value={newCompany.max_seats}
+                    onChange={(e) => setNewCompany({ ...newCompany, max_seats: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
                   <label className="block font-bold text-slate-300">Monthly Billing MRR (₹) *</label>
                   <input
                     type="number"
@@ -1323,24 +1405,34 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
                     className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
                   />
                 </div>
+
+                <div className="space-y-1.5">
+                  <label className="block font-bold text-slate-300">Merchant Direct UPI VPA</label>
+                  <input
+                    type="text"
+                    placeholder="company@bank or merchant@upi"
+                    value={newCompany.upi_id}
+                    onChange={(e) => setNewCompany({ ...newCompany, upi_id: e.target.value })}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
+                  />
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="block font-bold text-slate-300">Merchant Direct UPI VPA</label>
-                <input
-                  type="text"
-                  placeholder="company@bank or merchant@upi"
-                  value={newCompany.upi_id}
-                  onChange={(e) => setNewCompany({ ...newCompany, upi_id: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white font-mono focus:outline-hidden focus:border-amber-400"
-                />
+              <div className="p-3 bg-slate-950/80 border border-slate-800 rounded-xl text-[11px] text-slate-300 space-y-1">
+                <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+                  <ShieldCheck size={14} />
+                  <span>Automatic Admin Account Provisioning</span>
+                </div>
+                <p className="text-slate-400">
+                  When onboarded, the client administrator will be able to log in immediately using their phone/email and password. Once logged in, they can create subordinate logins for their field staff and executives.
+                </p>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setIsOnboardModalOpen(false)}
-                  className="px-4 py-2 text-slate-400 hover:text-white font-bold"
+                  className="px-4 py-2 text-slate-400 hover:text-white font-bold cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1354,6 +1446,81 @@ export default function SuperAdminApp({ onLogout, user, onSwitchToApp }) {
 
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 1.5: CREATED CREDENTIALS CONFIRMATION POPUP                          */}
+      {/* ========================================================================= */}
+      {createdCredentialsModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={22} className="text-emerald-400" />
+                <h3 className="font-bold text-white text-base">Client Onboarded Successfully</h3>
+              </div>
+              <button onClick={() => setCreatedCredentialsModal(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl space-y-3">
+              <div className="text-xs text-slate-400 font-medium">
+                Client Organization: <strong className="text-white text-sm block">{createdCredentialsModal.companyName}</strong>
+              </div>
+
+              <div className="space-y-2 pt-2 border-t border-slate-800/80 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Admin Name:</span>
+                  <span className="font-bold text-white">{createdCredentialsModal.adminName}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Login Phone / User ID:</span>
+                  <span className="font-mono font-bold text-amber-400">{createdCredentialsModal.phone}</span>
+                </div>
+                {createdCredentialsModal.email && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">Login Email:</span>
+                    <span className="font-mono text-slate-200">{createdCredentialsModal.email}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between bg-amber-950/30 p-2 rounded-lg border border-amber-500/20">
+                  <span className="text-amber-300 font-bold">Password:</span>
+                  <span className="font-mono font-bold text-amber-200 tracking-wider text-sm">{createdCredentialsModal.password}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Allocated Seats:</span>
+                  <span className="font-bold text-emerald-400">{createdCredentialsModal.maxSeats} Users</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 bg-emerald-950/20 border border-emerald-500/20 rounded-xl text-xs text-emerald-300">
+              ✓ The client administrator can now log in using these credentials and start onboarding their field subordinates and staff.
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = `*${createdCredentialsModal.companyName} Login Credentials*\nLogin ID: ${createdCredentialsModal.phone}\nEmail: ${createdCredentialsModal.email}\nPassword: ${createdCredentialsModal.password}\nRole: Administrator (${createdCredentialsModal.maxSeats} Seats)`;
+                  navigator.clipboard?.writeText(text);
+                  showToast('Credentials copied to clipboard!', 'success');
+                }}
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Copy size={16} /> Copy Credentials
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreatedCredentialsModal(null)}
+                className="px-5 py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-950 font-black rounded-xl cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

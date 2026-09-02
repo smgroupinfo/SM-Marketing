@@ -580,3 +580,116 @@ export async function directSupabaseGetVisits(userId) {
   }
   return allVisits;
 }
+
+// ==============================================================================
+// DIRECT SUPABASE TENANT ONBOARDING & SUBORDINATE USER CREATION
+// ==============================================================================
+export async function directSupabaseOnboardTenantClient(clientData) {
+  const { 
+    companyName, adminFullName, adminPhone, adminEmail, password, 
+    maxSeats, planTier, planMrr, upiId, cardPaymentsEnabled, subscriptionDays 
+  } = clientData;
+
+  const cleanPhone = (adminPhone || '').trim();
+  const cleanEmail = adminEmail ? adminEmail.trim().toLowerCase() : `${cleanPhone}@client.saas`;
+  const cleanCompanyName = (companyName || '').trim();
+  const cleanAdminName = (adminFullName || cleanCompanyName + ' Administrator').trim();
+  const tenantId = 't_' + Date.now();
+  const adminUserId = 'admin-' + Date.now();
+  const durationDays = parseInt(subscriptionDays, 10) || 365;
+  const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync((password || 'admin123').trim(), salt);
+
+  const tenantPayload = {
+    id: tenantId,
+    name: cleanCompanyName,
+    admin_phone: cleanPhone,
+    owner_email: cleanEmail,
+    max_seats: parseInt(maxSeats, 10) || 10,
+    used_seats: 1,
+    status: 'ACTIVE',
+    plan_tier: planTier || 'Business Growth',
+    plan_mrr: parseInt(planMrr, 10) || 11999,
+    upi_id: (upiId || 'merchant@upi').trim().toLowerCase(),
+    card_gateway_enabled: Boolean(cardPaymentsEnabled),
+    card_payments_enabled: Boolean(cardPaymentsEnabled),
+    subscription_duration_days: durationDays,
+    subscription_expires_at: expiresAt,
+    contract_expires_at: expiresAt,
+    created_at: new Date().toISOString().substring(0, 10)
+  };
+
+  const adminUserRecord = {
+    id: adminUserId,
+    full_name: cleanAdminName,
+    phone_number: cleanPhone,
+    email: cleanEmail,
+    password_hash: passwordHash,
+    role: 'ADMIN',
+    status: 'APPROVED',
+    current_address: cleanCompanyName + ' HQ Office',
+    supervisor: ''
+  };
+
+  if (supabase) {
+    try {
+      await supabase.from('tenants').insert([tenantPayload]);
+      await supabase.from('users').upsert([adminUserRecord], { onConflict: 'phone_number' });
+    } catch (e) {
+      console.warn('[Direct Tenant Onboard Exception]', e);
+    }
+  }
+
+  // Update local caches
+  const cachedTenants = getCached('saas_tenants_cache', []);
+  setCached('saas_tenants_cache', [tenantPayload, ...cachedTenants]);
+
+  const cachedUsers = getCached('offline_users', SEED_USERS);
+  if (!cachedUsers.some(u => u.phone_number === cleanPhone)) {
+    cachedUsers.unshift(adminUserRecord);
+    setCached('offline_users', cachedUsers);
+  }
+
+  return { tenant: tenantPayload, user: adminUserRecord };
+}
+
+export async function directSupabaseCreateSubordinateUser(userData) {
+  const { fullName, phoneNumber, email, password, role, supervisor, currentAddress, status } = userData;
+  const cleanPhone = (phoneNumber || '').trim();
+  const cleanEmail = email ? email.trim().toLowerCase() : `${cleanPhone}@smm.com`;
+  const assignedRole = role || 'EXECUTIVE';
+  const assignedStatus = status || 'APPROVED';
+  const newUserId = 'exec-' + Date.now();
+
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync((password || 'exec123').trim(), salt);
+
+  const newUserRecord = {
+    id: newUserId,
+    full_name: (fullName || '').trim(),
+    phone_number: cleanPhone,
+    email: cleanEmail,
+    password_hash: passwordHash,
+    role: assignedRole,
+    status: assignedStatus,
+    current_address: currentAddress ? currentAddress.trim() : 'Field Territory',
+    supervisor: supervisor ? supervisor.trim() : ''
+  };
+
+  if (supabase) {
+    try {
+      await supabase.from('users').insert([newUserRecord]);
+    } catch (e) {
+      console.warn('[Direct Create Subordinate User Exception]', e);
+    }
+  }
+
+  const cachedUsers = getCached('offline_users', SEED_USERS);
+  cachedUsers.unshift(newUserRecord);
+  setCached('offline_users', cachedUsers);
+
+  return newUserRecord;
+}
+

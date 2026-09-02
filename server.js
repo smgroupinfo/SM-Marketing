@@ -2464,6 +2464,192 @@ app.get('/api/admin/users', authenticateToken, async (req, res) => {
   }
 });
 
+// Admin: Create New Subordinate User / Field Executive / Assistant
+app.post('/api/admin/users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Forbidden: Only Administrators can provision subordinate accounts.' });
+  }
+
+  const { fullName, phoneNumber, email, password, role, supervisor, currentAddress, status } = req.body;
+  if (!fullName || !phoneNumber || !password) {
+    return res.status(400).json({ error: 'Full name, phone number, and initial password are required.' });
+  }
+
+  const cleanPhone = phoneNumber.trim();
+  const cleanEmail = email ? email.trim().toLowerCase() : `${cleanPhone}@smm.com`;
+  const assignedRole = role || 'EXECUTIVE';
+  const assignedStatus = status || 'APPROVED';
+  const newUserId = crypto.randomUUID();
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password.trim(), salt);
+
+    if (supabase) {
+      const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .or(`phone_number.eq.${cleanPhone},email.eq.${cleanEmail}`)
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return res.status(400).json({ error: 'A user with this phone number or email already exists in the system.' });
+      }
+
+      const { data, error } = await supabase
+        .from('users')
+        .insert([{
+          id: newUserId,
+          full_name: fullName.trim(),
+          phone_number: cleanPhone,
+          email: cleanEmail,
+          password_hash: passwordHash,
+          role: assignedRole,
+          status: assignedStatus,
+          current_address: currentAddress ? currentAddress.trim() : 'Field Territory',
+          supervisor: supervisor ? supervisor.trim() : ''
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return res.json({
+        message: `Subordinate account for ${fullName.trim()} (${assignedRole}) created successfully.`,
+        user: {
+          id: data.id,
+          user_id: data.id,
+          fullName: data.full_name,
+          phoneNumber: data.phone_number,
+          email: data.email,
+          role: data.role,
+          status: data.status,
+          supervisor: data.supervisor
+        }
+      });
+    }
+
+    // Fallback
+    const existing = fallbackCache.users.find(u => u.phone_number === cleanPhone || (u.email && u.email === cleanEmail));
+    if (existing) {
+      return res.status(400).json({ error: 'A user with this phone number or email already exists.' });
+    }
+
+    const newUser = {
+      id: newUserId,
+      user_id: newUserId,
+      full_name: fullName.trim(),
+      phone_number: cleanPhone,
+      email: cleanEmail,
+      password_hash: passwordHash,
+      role: assignedRole,
+      status: assignedStatus,
+      current_address: currentAddress ? currentAddress.trim() : 'Field Territory',
+      supervisor: supervisor ? supervisor.trim() : ''
+    };
+    fallbackCache.users.unshift(newUser);
+
+    return res.json({
+      message: `Subordinate account for ${fullName.trim()} (${assignedRole}) created successfully.`,
+      user: newUser
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create subordinate user: ' + err.message });
+  }
+});
+
+// Super Admin: Dedicated Onboard Client Tenant & Admin Credentials Endpoint
+app.post('/api/super-admin/tenants/onboard', async (req, res) => {
+  const { 
+    companyName, adminFullName, adminPhone, adminEmail, password, 
+    maxSeats, planTier, planMrr, upiId, cardPaymentsEnabled, subscriptionDays 
+  } = req.body;
+
+  if (!companyName || !adminPhone || !password) {
+    return res.status(400).json({ error: 'Company legal name, owner mobile number, and initial login password are required.' });
+  }
+
+  const cleanPhone = adminPhone.trim();
+  const cleanEmail = adminEmail ? adminEmail.trim().toLowerCase() : `${cleanPhone}@client.saas`;
+  const cleanCompanyName = companyName.trim();
+  const cleanAdminName = (adminFullName || cleanCompanyName + ' Administrator').trim();
+  const tenantId = 't_' + Date.now();
+  const adminUserId = crypto.randomUUID();
+  const durationDays = parseInt(subscriptionDays, 10) || 365;
+  const expiresAt = new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  try {
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password.trim(), salt);
+
+    const tenantPayload = {
+      id: tenantId,
+      name: cleanCompanyName,
+      admin_phone: cleanPhone,
+      owner_email: cleanEmail,
+      max_seats: parseInt(maxSeats, 10) || 10,
+      used_seats: 1, // 1 seat utilized by primary admin
+      status: 'ACTIVE',
+      plan_tier: planTier || 'Business Growth',
+      plan_mrr: parseInt(planMrr, 10) || 11999,
+      upi_id: (upiId || 'merchant@upi').trim().toLowerCase(),
+      card_gateway_enabled: Boolean(cardPaymentsEnabled),
+      card_payments_enabled: Boolean(cardPaymentsEnabled),
+      subscription_duration_days: durationDays,
+      subscription_expires_at: expiresAt,
+      contract_expires_at: expiresAt,
+      created_at: new Date().toISOString()
+    };
+
+    const adminUserPayload = {
+      id: adminUserId,
+      full_name: cleanAdminName,
+      phone_number: cleanPhone,
+      email: cleanEmail,
+      password_hash: passwordHash,
+      role: 'ADMIN',
+      status: 'APPROVED',
+      current_address: cleanCompanyName + ' HQ Office',
+      supervisor: ''
+    };
+
+    if (supabase) {
+      // 1. Insert Tenant
+      await supabase.from('tenants').insert([tenantPayload]).catch(e => console.warn('Supabase tenant insert notice:', e.message));
+
+      // 2. Insert or Upsert Admin User
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .upsert([adminUserPayload], { onConflict: 'phone_number' })
+        .select()
+        .single();
+
+      if (userError) {
+        console.warn('Supabase user upsert notice:', userError.message);
+      }
+    }
+
+    // Update fallback cache
+    fallbackCache.users.unshift(adminUserPayload);
+
+    return res.json({
+      message: `Client "${cleanCompanyName}" onboarded successfully. Admin credentials provisioned for ${cleanPhone}.`,
+      tenant: tenantPayload,
+      adminUser: {
+        id: adminUserId,
+        fullName: cleanAdminName,
+        phoneNumber: cleanPhone,
+        email: cleanEmail,
+        role: 'ADMIN',
+        status: 'APPROVED'
+      }
+    });
+  } catch (err) {
+    console.error('Onboarding exception:', err);
+    res.status(500).json({ error: 'Failed to onboard client: ' + err.message });
+  }
+});
+
 app.put('/api/admin/users/:id', authenticateToken, async (req, res) => {
   if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
   const targetId = req.params.id;
