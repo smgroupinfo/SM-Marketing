@@ -3,9 +3,10 @@ import {
   MapPin, Camera, Mic, Bell, Database, ShieldAlert, ShieldCheck, CheckCircle2, 
   AlertCircle, XCircle, RefreshCw, Lock, ArrowRight, Smartphone,
   Info, AlertTriangle, Check, Volume2, Sparkles, HardDrive, ExternalLink,
-  Video, MicOff, Play, Square, Radio, HelpCircle, ChevronDown, ChevronUp, ChevronRight
+  Video, MicOff, Play, Square, Radio, HelpCircle, ChevronDown, ChevronUp, ChevronRight, Scale
 } from 'lucide-react';
 import { captureLiveLocation } from '../lib/locationService';
+import IndianStatutoryComplianceModal from './IndianStatutoryComplianceModal';
 import { 
   requestNotificationPermission, 
   sendMobilePushNotification, 
@@ -55,6 +56,8 @@ export function PermissionsCheckScreen({ user, onPermissionsGranted }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [showHelpGuide, setShowHelpGuide] = useState(false);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
+  const [dpdpConsentGiven, setDpdpConsentGiven] = useState(false); // DPDP Act 2023 strictly requires unchecked opt-in consent by default
 
   // Clean up any hardware streams on unmount
   useEffect(() => {
@@ -539,13 +542,42 @@ export function PermissionsCheckScreen({ user, onPermissionsGranted }) {
 
         </div>
 
+        {/* DPDP Act 2023 Statutory Consent & Compliance Notice */}
+        <div className="mb-4 p-3 bg-slate-950/70 border border-slate-700/80 rounded-2xl space-y-2">
+          <div className="flex items-start gap-2 text-xs">
+            <input
+              type="checkbox"
+              id="dpdp-consent"
+              checked={dpdpConsentGiven}
+              onChange={(e) => setDpdpConsentGiven(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded text-blue-600 focus:ring-blue-500 bg-slate-800 border-slate-600"
+            />
+            <label htmlFor="dpdp-consent" className="text-[11px] text-slate-300 cursor-pointer">
+              I consent under India's <strong>DPDP Act 2023</strong> to GPS tracking &amp; camera capture strictly during active shift hours for enterprise travel reimbursement and dealer visit verification.
+            </label>
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px]">
+            <span className="text-slate-400">Purpose-limited to official shift duty</span>
+            <button
+              type="button"
+              onClick={() => setIsLegalModalOpen(true)}
+              className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 hover:underline"
+            >
+              <Scale size={11} />
+              <span>Read Statutory Compliance &amp; Privacy Policy</span>
+            </button>
+          </div>
+        </div>
+
         {/* Master Action Button */}
         <div className="space-y-2.5">
           <button
             onClick={isCoreReady ? () => { stopCameraPreview(); stopMicPreview(); onPermissionsGranted(); } : handleAuthorizeAll}
-            disabled={isProcessing}
+            disabled={isProcessing || !dpdpConsentGiven}
             className={`w-full py-3.5 px-6 rounded-2xl font-black text-sm tracking-wide flex items-center justify-center gap-2 shadow-xl transition-all active:scale-98 ${
-              isCoreReady
+              !dpdpConsentGiven
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                : isCoreReady
                 ? 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20'
                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20'
             }`}
@@ -589,8 +621,15 @@ export function PermissionsCheckScreen({ user, onPermissionsGranted }) {
         </div>
 
         <p className="text-[10px] text-slate-500 text-center mt-4">
-          Sundaram Mahadeo Group Security &amp; Audit Infrastructure • Encrypted hardware sensor pipelines.
+          Sundaram Mahadeo Group Security &amp; Audit Infrastructure • DPDP Act 2023 &amp; IT Act 2000 Compliant.
         </p>
+
+        {/* Indian Statutory Compliance Modal */}
+        <IndianStatutoryComplianceModal
+          isOpen={isLegalModalOpen}
+          onClose={() => setIsLegalModalOpen(false)}
+          user={user}
+        />
       </div>
     </div>
   );

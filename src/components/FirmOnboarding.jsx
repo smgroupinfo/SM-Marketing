@@ -3,12 +3,27 @@ import {
   Store, PlusCircle, Search, MapPin, Phone, User, 
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
   Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee,
-  Navigation, Crosshair, Compass, ShieldCheck, Trash2, Package
+  Navigation, Crosshair, Compass, ShieldCheck, Trash2, Package, Lock, KeyRound
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
 
 export default function FirmOnboarding({ user }) {
+  const isAdmin = Boolean(
+    user?.role === 'ADMIN' || 
+    user?.role === 'admin' ||
+    user?.userId === 'usr-admin-01' || 
+    user?.id === 'admin-001' ||
+    (() => {
+      try {
+        const stored = localStorage.getItem('auth_user');
+        return stored ? JSON.parse(stored)?.role === 'ADMIN' : false;
+      } catch (e) {
+        return false;
+      }
+    })()
+  );
+
   // 1. LOCAL STORAGE & INITIAL STATE FALLBACK
   const [firms, setFirms] = useState(() => {
     try {
@@ -35,6 +50,7 @@ export default function FirmOnboarding({ user }) {
   const [contactPerson, setContactPerson] = useState('');
   const [phone, setPhone] = useState('');
   const [gstin, setGstin] = useState('');
+  const [upiId, setUpiId] = useState('sundarammahadeo@icici');
   const [address, setAddress] = useState('');
   const [brandsHandled, setBrandsHandled] = useState('Tata Tiscon, UltraTech, ACC');
 
@@ -205,6 +221,7 @@ export default function FirmOnboarding({ user }) {
       contactPerson: contactPerson.trim(),
       phone: phone.trim(),
       gstin: gstin.trim() ? gstin.trim().toUpperCase() : 'URP-' + Math.floor(100000 + Math.random() * 900000),
+      upiId: isAdmin && upiId.trim() ? upiId.trim().toLowerCase() : 'sundarammahadeo@icici',
       address: address.trim() || 'General Market Area, Ranchi',
       brands_handled: brandsHandled.trim(),
       products: validProducts.length > 0 ? validProducts : dealerProducts,
@@ -436,6 +453,60 @@ export default function FirmOnboarding({ user }) {
               onChange={(e) => setAddress(e.target.value)}
               className="w-full px-4 py-3 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-white"
             />
+          </div>
+
+          {/* BENEFICIARY UPI ID (ADMIN CONTROLLED) */}
+          <div className="p-4 bg-emerald-50/70 border border-emerald-200/90 rounded-2xl space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-emerald-950 flex items-center gap-1.5 uppercase tracking-wider">
+                <KeyRound size={14} className="text-emerald-700" />
+                <span>Firm Beneficiary UPI ID / VPA</span>
+              </label>
+              {isAdmin ? (
+                <span className="text-[10px] uppercase font-black tracking-wider text-amber-900 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                  <KeyRound size={11} />
+                  Admin Authorized
+                </span>
+              ) : (
+                <span className="text-[10px] uppercase font-black tracking-wider text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
+                  <Lock size={11} />
+                  Admin Managed Only
+                </span>
+              )}
+            </div>
+
+            {isAdmin ? (
+              <div>
+                <input
+                  type="text"
+                  placeholder="e.g. sundaramsteel@icici or smst@oksbi"
+                  value={upiId}
+                  onChange={(e) => setUpiId(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm font-mono font-bold border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900 shadow-inner"
+                />
+                <p className="text-[11px] text-emerald-800 mt-1 font-medium">
+                  As Administrator, specify this firm's official bank VPA. All dynamic payment QR codes for this firm will route funds here.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    disabled
+                    value={upiId || 'sundarammahadeo@icici'}
+                    className="flex-1 px-4 py-2.5 text-sm font-mono font-bold border border-slate-200 rounded-xl bg-slate-100/90 text-slate-700 cursor-not-allowed select-all"
+                  />
+                  <span className="p-2.5 bg-emerald-100 text-emerald-800 rounded-xl border border-emerald-200">
+                    <ShieldCheck size={18} />
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-800 mt-1 font-medium">
+                  🔒 Locked by Security Policy: Firm UPI payment destination is centrally set and verified by Group Administrators.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* ========================================================================= */}

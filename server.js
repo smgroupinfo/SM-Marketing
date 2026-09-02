@@ -366,8 +366,8 @@ app.post('/api/auth/register', handleUserRegistration);
 app.post('/api/login', handleUserLogin);
 app.post('/api/auth/login', handleUserLogin);
 
-// GET /api/user/profile
-app.get('/api/user/profile', authenticateToken, async (req, res) => {
+// GET /api/user/profile & /api/auth/me
+app.get(['/api/user/profile', '/api/auth/me'], authenticateToken, async (req, res) => {
   try {
     let user = null;
     if (supabase) {
@@ -379,14 +379,21 @@ app.get('/api/user/profile', authenticateToken, async (req, res) => {
     }
     if (!user) return res.status(404).json({ error: 'User profile not found.' });
 
-    res.json({
+    const userPayload = {
       id: user.id || user.user_id,
+      userId: user.id || user.user_id,
       fullName: user.full_name,
       email: user.email,
       phoneNumber: user.phone_number,
       role: user.role,
       status: user.status,
       currentAddress: user.current_address
+    };
+
+    res.json({
+      user: userPayload,
+      data: { user: userPayload },
+      ...userPayload
     });
   } catch (err) {
     res.status(500).json({ error: 'Error fetching profile: ' + err.message });
@@ -440,6 +447,44 @@ app.get(['/api/shifts/current', '/api/shifts'], authenticateToken, async (req, r
     res.json({ shift: activeShift, shiftStatus: 'ACTIVE' });
   } catch (err) {
     res.status(500).json({ error: 'Error retrieving active shift: ' + err.message });
+  }
+});
+
+// GET shifts history
+app.get('/api/shifts/history', authenticateToken, async (req, res) => {
+  try {
+    let shifts = [];
+    const targetUserId = req.query.userId || (req.user.role === 'ADMIN' ? 'ALL' : req.user.userId);
+    if (supabase) {
+      let query = supabase.from('shifts').select('*').order('start_time', { ascending: false });
+      if (targetUserId && targetUserId !== 'ALL') {
+        query = query.eq('user_id', targetUserId);
+      }
+      const { data, error } = await query;
+      if (!error && data) {
+        shifts = data.map(s => ({
+          id: s.id,
+          userId: s.user_id,
+          openingOdometer: parseFloat(s.opening_odometer || 0),
+          closingOdometer: s.closing_odometer ? parseFloat(s.closing_odometer) : null,
+          totalKms: s.total_kms || 0,
+          openingPhoto: s.opening_photo,
+          closingPhoto: s.closing_photo,
+          startTime: s.start_time,
+          endTime: s.end_time,
+          status: s.status,
+          visitsCount: s.visits_count || 0
+        }));
+      }
+    }
+
+    if (shifts.length === 0) {
+      shifts = fallbackCache.shifts.filter(s => targetUserId === 'ALL' || s.userId === targetUserId);
+    }
+
+    res.json({ shifts, data: shifts });
+  } catch (err) {
+    res.status(500).json({ error: 'Error fetching shifts history: ' + err.message });
   }
 });
 
@@ -1106,6 +1151,7 @@ app.get('/api/firms', authenticateToken, async (req, res) => {
           exec_id: f.exec_id,
           name: f.name,
           gstin: f.gstin,
+          upiId: f.upi_id || f.upiId || 'sundarammahadeo@icici',
           address: f.address,
           phone: f.phone,
           contactPerson: f.contact_person,
@@ -1139,11 +1185,11 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
   // STRICT RBAC: Only Admin can add/onboard new firms
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ 
-      error: 'Access Denied: Only Administrators are authorized to add or onboard new firms. Field Executives have read and visit-logging permissions only.' 
+      error: 'Access Denied: Only Administrators are authorized to add or onboard new firms and configure Firm UPI IDs. Field Executives have read and visit-logging permissions only.' 
     });
   }
 
-  const { name, gstin, address, phone, contactPerson, brands_handled, prices, location, photo } = req.body;
+  const { name, gstin, address, phone, contactPerson, brands_handled, prices, location, photo, upiId, upi_id } = req.body;
   if (!name || !name.trim()) {
     return res.status(400).json({ error: 'Firm / Shop name is required.' });
   }
@@ -1151,6 +1197,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
   const firmId = 'firm_' + Date.now();
   const nowISO = new Date().toISOString();
   const cleanGstin = gstin ? gstin.trim().toUpperCase() : 'URP-' + Math.floor(100000 + Math.random() * 900000);
+  const cleanUpiId = (upiId || upi_id || 'sundarammahadeo@icici').trim().toLowerCase();
   const cleanAddress = address ? address.trim() : 'General Market Area';
   const cleanPhone = phone ? phone.trim() : '';
   const cleanContact = contactPerson ? contactPerson.trim() : '';
@@ -1164,6 +1211,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
     exec_id: req.user.userId,
     name: name.trim(),
     gstin: cleanGstin,
+    upiId: cleanUpiId,
     address: cleanAddress,
     phone: cleanPhone,
     contactPerson: cleanContact,
@@ -1183,6 +1231,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
           exec_id: req.user.userId,
           name: name.trim(),
           gstin: cleanGstin,
+          upi_id: cleanUpiId,
           address: cleanAddress,
           phone: cleanPhone,
           contact_person: cleanContact,
@@ -1201,6 +1250,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
           exec_id: data.exec_id,
           name: data.name,
           gstin: data.gstin,
+          upiId: data.upi_id || cleanUpiId,
           address: data.address,
           phone: data.phone,
           contactPerson: data.contact_person,
@@ -1218,7 +1268,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
           id: 'notif_' + Date.now(),
           userId: 'ALL',
           title: 'New Firm Onboarded',
-          message: `Admin added new dealer firm: "${name.trim()}" (${cleanAddress}).`,
+          message: `Admin added new dealer firm: "${name.trim()}" (UPI: ${cleanUpiId}).`,
           type: 'SYSTEM',
           read: false,
           timestamp: new Date().toISOString()
@@ -1236,7 +1286,7 @@ app.post('/api/firms', authenticateToken, async (req, res) => {
       id: 'notif_' + Date.now(),
       userId: 'ALL',
       title: 'New Firm Onboarded',
-      message: `Admin added new dealer firm: "${name.trim()}" (${cleanAddress}).`,
+      message: `Admin added new dealer firm: "${name.trim()}" (UPI: ${cleanUpiId}).`,
       type: 'SYSTEM',
       read: false,
       timestamp: new Date().toISOString()
@@ -1254,20 +1304,22 @@ app.put('/api/firms/:id', authenticateToken, async (req, res) => {
   // STRICT RBAC: Only Admin can edit firms
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ 
-      error: 'Access Denied: Only Administrators are authorized to edit firm information. Field Executives do not have edit privileges.' 
+      error: 'Access Denied: Only Administrators are authorized to edit firm information or change UPI IDs. Field Executives do not have edit privileges.' 
     });
   }
 
   const targetId = req.params.id;
-  const { name, gstin, address, phone, contactPerson, brands_handled, prices, location, photo } = req.body;
+  const { name, gstin, address, phone, contactPerson, brands_handled, prices, location, photo, upiId, upi_id } = req.body;
 
   try {
     let updatedFirm = null;
+    const cleanUpi = (upiId || upi_id) ? (upiId || upi_id).trim().toLowerCase() : undefined;
 
     if (supabase) {
       const updatePayload = {};
       if (name) updatePayload.name = name.trim();
       if (gstin) updatePayload.gstin = gstin.trim().toUpperCase();
+      if (cleanUpi) updatePayload.upi_id = cleanUpi;
       if (address) updatePayload.address = address.trim();
       if (phone) updatePayload.phone = phone.trim();
       if (contactPerson) updatePayload.contact_person = contactPerson.trim();
@@ -1289,6 +1341,7 @@ app.put('/api/firms/:id', authenticateToken, async (req, res) => {
           exec_id: data.exec_id,
           name: data.name,
           gstin: data.gstin,
+          upiId: data.upi_id || cleanUpi || 'sundarammahadeo@icici',
           address: data.address,
           phone: data.phone,
           contactPerson: data.contact_person,
@@ -1309,6 +1362,7 @@ app.put('/api/firms/:id', authenticateToken, async (req, res) => {
         ...existing,
         name: name ? name.trim() : existing.name,
         gstin: gstin ? gstin.trim().toUpperCase() : existing.gstin,
+        upiId: cleanUpi || existing.upiId || 'sundarammahadeo@icici',
         address: address ? address.trim() : existing.address,
         phone: phone ? phone.trim() : existing.phone,
         contactPerson: contactPerson ? contactPerson.trim() : existing.contactPerson,
@@ -1337,6 +1391,56 @@ app.put('/api/firms/:id', authenticateToken, async (req, res) => {
     return res.json({ message: 'Firm updated successfully by Administrator', firm: updatedFirm });
   } catch (err) {
     res.status(500).json({ error: 'Error updating firm: ' + err.message });
+  }
+});
+
+// Admin: Dedicated Endpoint to configure/change Firm UPI ID
+app.put('/api/firms/:id/upi', authenticateToken, async (req, res) => {
+  // STRICT RBAC: Only Admin can update firm UPI ID
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ 
+      error: 'Access Denied: Only Administrators are authorized to configure or change Firm UPI IDs.' 
+    });
+  }
+
+  const targetId = req.params.id;
+  const { upiId } = req.body;
+
+  if (!upiId || !upiId.trim() || !upiId.includes('@')) {
+    return res.status(400).json({ error: 'Valid UPI ID / VPA is required (e.g. sundaram@icici).' });
+  }
+
+  const cleanUpi = upiId.trim().toLowerCase();
+
+  try {
+    if (supabase) {
+      const { error } = await supabase
+        .from('firms')
+        .update({ upi_id: cleanUpi })
+        .eq('id', targetId);
+      if (error) {
+        console.warn('Supabase firm upi update notice:', error.message);
+      }
+    }
+
+    const firmIndex = fallbackCache.firms.findIndex(f => f.id === targetId || f.name === targetId);
+    if (firmIndex !== -1) {
+      fallbackCache.firms[firmIndex].upiId = cleanUpi;
+    }
+
+    fallbackCache.notifications.unshift({
+      id: 'notif_' + Date.now(),
+      userId: 'ALL',
+      title: 'Firm UPI ID Updated',
+      message: `Admin updated beneficiary UPI VPA for firm ${targetId} to "${cleanUpi}".`,
+      type: 'SECURITY',
+      read: false,
+      timestamp: new Date().toISOString()
+    });
+
+    return res.json({ message: 'Firm UPI ID updated successfully by Administrator', upiId: cleanUpi });
+  } catch (err) {
+    res.status(500).json({ error: 'Error updating firm UPI ID: ' + err.message });
   }
 });
 
@@ -2463,7 +2567,7 @@ app.post('/api/admin/users/:id/reset-password', authenticateToken, async (req, r
   }
 });
 
-app.get('/api/admin/config', authenticateToken, async (req, res) => {
+app.get(['/api/admin/config', '/api/config'], async (req, res) => {
   try {
     if (supabase) {
       const { data, error } = await supabase.from('app_config').select('*').eq('id', 'global').single();
@@ -2481,7 +2585,7 @@ app.get('/api/admin/config', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/admin/config', authenticateToken, async (req, res) => {
+app.put(['/api/admin/config', '/api/config'], authenticateToken, async (req, res) => {
   if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Forbidden' });
   const { kmRate, foodingAllowance, incentives } = req.body;
 

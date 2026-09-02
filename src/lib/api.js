@@ -429,7 +429,14 @@ async function handleSupabaseFallback(method, url, data) {
     return { data: { message: 'Firm removed successfully', id } };
   }
 
-  // 6. Shifts: Current / Active (GET)
+  // 6. Shifts: Current / Active & History (GET)
+  if (cleanUrl.startsWith('/shifts/history') && method === 'get') {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const uid = user.role === 'ADMIN' ? 'ALL' : (user.userId || user.id);
+    const shifts = await directSupabaseGetShifts(uid);
+    return { data: { shifts, data: shifts } };
+  }
+
   if ((cleanUrl === '/shifts/current' || cleanUrl === '/shifts/active') && method === 'get') {
     const active = localStorage.getItem('active_shift');
     const parsed = active ? JSON.parse(active) : null;

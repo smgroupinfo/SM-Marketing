@@ -493,7 +493,11 @@ export async function directSupabaseGetShifts(userId) {
       console.warn('[Supabase Get Shifts Exception]', e);
     }
   }
-  return getCached('shifts_history', []);
+  const allShifts = getCached('shifts_history', []);
+  if (userId && userId !== 'ALL') {
+    return allShifts.filter(s => s.userId === userId || s.user_id === userId);
+  }
+  return allShifts;
 }
 
 // ==============================================================================
@@ -570,5 +574,9 @@ export async function directSupabaseGetVisits(userId) {
       console.warn('[Supabase Get Visits Exception]', e);
     }
   }
-  return getCached('offline_visits', []);
+  const allVisits = getCached('offline_visits', []);
+  if (userId && userId !== 'ALL') {
+    return allVisits.filter(v => v.userId === userId || v.user_id === userId || v.exec_id === userId);
+  }
+  return allVisits;
 }

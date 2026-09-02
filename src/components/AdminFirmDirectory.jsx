@@ -4,7 +4,7 @@ import {
   FileText, CheckCircle2, AlertCircle, Camera, Check, RefreshCw, Tag,
   Calendar, ShoppingBag, CreditCard, ChevronRight, History, ExternalLink, IndianRupee,
   Filter, Download, Layers, ArrowUpRight, ArrowDownLeft, Wallet, Building2, Eye,
-  Navigation, Crosshair, Compass, ShieldCheck, Edit3, Trash2, X
+  Navigation, Crosshair, Compass, ShieldCheck, Edit3, Trash2, X, Lock, KeyRound, QrCode
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
@@ -42,10 +42,10 @@ export default function AdminFirmDirectory({ user }) {
   const [phone, setPhone] = useState('');
   const [gstin, setGstin] = useState('');
   const [address, setAddress] = useState('');
-  const [brandsHandled, setBrandsHandled] = useState('Tata Tiscon, UltraTech, ACC');
-  const [purchasePrice, setPurchasePrice] = useState('320');
-  const [retailPrice, setRetailPrice] = useState('350');
-  const [wholesalePrice, setWholesalePrice] = useState('335');
+  const [brandsHandled, setBrandsHandled] = useState('');
+  const [purchasePrice, setPurchasePrice] = useState('');
+  const [retailPrice, setRetailPrice] = useState('');
+  const [wholesalePrice, setWholesalePrice] = useState('');
   const [photo, setPhoto] = useState('');
   const [photoPreview, setPhotoPreview] = useState('');
 
@@ -243,6 +243,7 @@ export default function AdminFirmDirectory({ user }) {
       contactPerson: firm.contact_person || firm.contactPerson || '',
       phone: firm.phone || '',
       gstin: firm.gstin || '',
+      upiId: firm.upiId || firm.upi_id || 'sundarammahadeo@icici',
       address: firm.address || '',
       brandsHandled: firm.brands_handled || (Array.isArray(firm.brands) ? firm.brands.join(', ') : ''),
       purchasePrice: firm.prices?.purchase || firm.purchasePrice || '',
@@ -265,6 +266,7 @@ export default function AdminFirmDirectory({ user }) {
       contact_person: editFormData.contactPerson.trim(),
       phone: editFormData.phone.trim(),
       gstin: editFormData.gstin.trim(),
+      upiId: (editFormData.upiId || 'sundarammahadeo@icici').trim().toLowerCase(),
       address: editFormData.address.trim(),
       brands_handled: editFormData.brandsHandled.trim(),
       prices: {
@@ -770,6 +772,20 @@ export default function AdminFirmDirectory({ user }) {
                           ₹{firmBalance.toLocaleString('en-IN')}
                         </p>
                       </div>
+                    </div>
+
+                    {/* Admin-Configured Beneficiary UPI ID */}
+                    <div className="flex items-center justify-between bg-emerald-50/70 border border-emerald-200/80 p-2.5 rounded-xl text-xs">
+                      <div className="flex items-center gap-1.5 text-emerald-950 font-medium">
+                        <ShieldCheck size={14} className="text-emerald-600 shrink-0" />
+                        <span className="font-mono text-[11px] font-bold">
+                          UPI VPA: {firm.upiId || firm.upi_id || 'sundarammahadeo@icici'}
+                        </span>
+                      </div>
+                      <span className="text-[9px] uppercase tracking-wider font-black text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-md border border-emerald-300 flex items-center gap-1">
+                        <Lock size={10} />
+                        Admin Set
+                      </span>
                     </div>
 
                     {/* GPS Pin & Map Coordinates */}
@@ -1660,6 +1676,30 @@ export default function AdminFirmDirectory({ user }) {
                     className="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500"
                   />
                 </div>
+              </div>
+
+              {/* ADMIN ONLY: Beneficiary UPI ID */}
+              <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-emerald-950 flex items-center gap-1">
+                    <KeyRound size={13} className="text-emerald-700" />
+                    <span>Firm Beneficiary UPI ID (Admin Controlled) *</span>
+                  </label>
+                  <span className="text-[9px] uppercase tracking-wider font-black text-emerald-900 bg-emerald-200/90 px-1.5 py-0.5 rounded border border-emerald-300">
+                    Admin Exclusive
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. smst@icici or 9835012345@paytm"
+                  value={editFormData?.upiId ?? ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, upiId: e.target.value })}
+                  className="w-full px-3 py-2 text-xs font-mono font-bold border border-emerald-300 rounded-xl focus:ring-2 focus:ring-emerald-500 bg-white text-slate-900"
+                />
+                <p className="text-[10px] text-emerald-800 font-medium">
+                  Dealers and field staff will generate payment QR codes exclusively directing funds to this verified VPA.
+                </p>
               </div>
 
               <div>

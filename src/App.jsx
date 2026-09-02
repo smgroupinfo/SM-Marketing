@@ -5,7 +5,7 @@ import {
   TrendingUp, IndianRupee, User, Store, MapPin, Calendar, Settings, Users, 
   Activity, BarChart, Settings2, Download, AlertCircle, AlertTriangle, Camera, 
   Database, ShieldAlert, Lock, RefreshCw, Smartphone, ShieldCheck, ArrowRight,
-  Bell, Send, Trash2, Plus
+  Bell, Send, Trash2, Plus, Scale, Building2, Key, Phone
 } from 'lucide-react';
 import AdminUMS from './components/AdminUMS';
 import AdminReports from './components/AdminReports';
@@ -17,6 +17,12 @@ import IncentivesDashboard from './components/IncentivesDashboard';
 import FirmOnboarding from './components/FirmOnboarding';
 import TelegramAdminConfig from './components/TelegramAdminConfig';
 import NotificationCenter from './components/NotificationCenter';
+import OfflineSyncIndicator from './components/OfflineSyncIndicator';
+import IndianStatutoryComplianceModal from './components/IndianStatutoryComplianceModal';
+import SuperAdminDashboard from './components/SuperAdminDashboard';
+import SuperAdminGuard from './components/SuperAdminGuard';
+import SuperAdminDedicatedLogin from './components/SuperAdminDedicatedLogin';
+import SuperAdminApp from './components/SuperAdminApp';
 import { 
   PermissionsCheckScreen, 
   RevokedPermissionsOverlay, 
@@ -134,11 +140,7 @@ function AdminConfig({ user }) {
       setConfig({
         kmRate: Number(parsedConfig.kmRate ?? parsedConfig.km_rate ?? 5),
         foodingAllowance: Number(parsedConfig.foodingAllowance ?? parsedConfig.fooding_allowance ?? 250),
-        incentives: incs.length > 0 ? incs : [
-          { id: '1', name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 },
-          { id: '2', name: 'TMT Steel (Tata Tiscon / Jindal)', unit: 'MT', rate: 50 },
-          { id: '3', name: 'Pipes & Fittings', unit: 'Pcs', rate: 10 }
-        ]
+        incentives: Array.isArray(incs) ? incs : []
       });
     } catch (err) {
       console.error('Failed to fetch admin config', err);
@@ -830,6 +832,7 @@ function ProfileSettings({ user, onLogout }) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [message, setMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(true);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -930,6 +933,42 @@ function ProfileSettings({ user, onLogout }) {
           </div>
         </div>
       </div>
+
+      {/* Statutory & Legal Compliance Card (India DPDP Act 2023, IT Act 2000, NPCI UPI) */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-indigo-100 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Scale className="text-indigo-600" size={18} />
+            <h3 className="text-sm font-bold text-gray-900">Statutory & Legal Compliance Hub (India)</h3>
+          </div>
+          <span className="bg-indigo-100 text-indigo-800 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+            DPDP Act 2023 Compliant
+          </span>
+        </div>
+        <p className="text-xs text-gray-500 leading-relaxed">
+          Sundaram Mahadeo Group operations comply with the Digital Personal Data Protection Act 2023, Information Technology Act 2000, NPCI UPI Procedural Guidelines, and Indian Labour Law shift standards.
+        </p>
+        <div className="pt-1 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-[11px] text-slate-500 font-medium">
+            Grievance Officer: <span className="text-slate-800 font-bold">info@sundarammahadeogroup.com</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsLegalModalOpen(true)}
+            className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-xs transition-colors border border-indigo-200 flex items-center gap-1.5"
+          >
+            <Scale size={14} />
+            <span>View Legal Compliance Hub & Policy</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Indian Statutory Compliance Modal */}
+      <IndianStatutoryComplianceModal
+        isOpen={isLegalModalOpen}
+        onClose={() => setIsLegalModalOpen(false)}
+        user={user}
+      />
     </div>
   );
 }
@@ -939,6 +978,7 @@ function ProfileSettings({ user, onLogout }) {
 // ==========================================
 
 function Login({ onLogin }) {
+  const [portalMode, setPortalMode] = useState('app'); // 'app' | 'super_admin'
   const [isRegistering, setIsRegistering] = useState(false);
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
@@ -947,8 +987,13 @@ function Login({ onLogin }) {
   const [currentAddress, setCurrentAddress] = useState('');
   const [statusMessage, setStatusMessage] = useState({ type: '', text: '' });
   const [loading, setLoading] = useState(false);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
 
-  const handleSubmit = async (e) => {
+  // Super Admin Specific Fields
+  const [superPhone, setSuperPhone] = useState('9435188967');
+  const [superPasskey, setSuperPasskey] = useState('');
+
+  const handleStandardSubmit = async (e) => {
     e.preventDefault();
     setStatusMessage({ type: '', text: '' });
     setLoading(true);
@@ -963,9 +1008,17 @@ function Login({ onLogin }) {
         setPassword('');
       } else {
         const res = await api.post('/auth/login', { emailOrPhone, password });
+        try {
+          if (window.location.hash) {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        } catch {
+          // ignore
+        }
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
-        onLogin(res.data.token, res.data.user);
+        localStorage.setItem('current_portal', 'app');
+        onLogin(res.data.token, res.data.user, 'app');
       }
     } catch (err) {
       const errMsg = err.response?.data?.error || err.message || 'Authentication failed';
@@ -990,75 +1043,305 @@ function Login({ onLogin }) {
     }
   };
 
+  const handleSuperAdminSubmit = (e) => {
+    e.preventDefault();
+    setStatusMessage({ type: '', text: '' });
+    setLoading(true);
+
+    setTimeout(() => {
+      const cleanPhone = String(superPhone).replace(/\D/g, '');
+
+      // Strict Super Admin Access Policy
+      if (cleanPhone !== '9435188967') {
+        setStatusMessage({
+          type: 'forbidden_403',
+          text: '403 Access Forbidden: Root Super Admin access is restricted exclusively to Master Phone 9435188967. Standard staff credentials cannot access this command center.'
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (superPasskey !== 'admin123' && superPasskey !== '9435188967') {
+        setStatusMessage({
+          type: 'error',
+          text: 'Invalid Master Clearance Passkey. Please verify your confidential credentials.'
+        });
+        setLoading(false);
+        return;
+      }
+
+      const superSession = {
+        id: 'super_admin_root',
+        fullName: 'Chief Super Administrator',
+        phone: '9435188967',
+        role: 'SUPER_ADMIN',
+        loggedAt: new Date().toISOString()
+      };
+
+      const masterToken = 'super_admin_jwt_master_' + Date.now();
+      localStorage.setItem('saas_super_admin_session', JSON.stringify(superSession));
+      localStorage.setItem('token', masterToken);
+      localStorage.setItem('user', JSON.stringify(superSession));
+      localStorage.setItem('current_portal', 'super-admin');
+
+      onLogin(masterToken, superSession, 'super-admin');
+      setLoading(false);
+    }, 450);
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="max-w-md w-full bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
-        <div className="text-center mb-6">
-          <h2 className="text-2xl font-black text-gray-900 tracking-tight">
-            {isRegistering ? 'Field Executive Registration' : 'SM Marketing'}
-          </h2>
-          <p className="text-xs text-gray-500 font-semibold mt-1 tracking-wide">
-            {isRegistering ? 'Submit profile for Administrator approval' : 'Official Marketing APP OF SMM'}
+    <div className={`min-h-screen flex items-center justify-center p-4 sm:p-6 transition-colors duration-300 ${
+      portalMode === 'super_admin' ? 'bg-[#090d16]' : 'bg-gray-50'
+    }`}>
+      <div className={`max-w-md w-full p-6 sm:p-8 rounded-3xl shadow-2xl transition-all duration-300 border ${
+        portalMode === 'super_admin' 
+          ? 'bg-slate-900/95 border-slate-800 text-slate-100' 
+          : 'bg-white border-gray-100 text-gray-900'
+      }`}>
+        
+        {/* Top Segmented Portal Switcher */}
+        <div className="mb-6">
+          <div className={`flex p-1 rounded-2xl border transition-all ${
+            portalMode === 'super_admin' 
+              ? 'bg-slate-950 border-slate-800' 
+              : 'bg-gray-100 border-gray-200'
+          }`}>
+            <button
+              type="button"
+              onClick={() => { 
+                setPortalMode('app'); 
+                localStorage.setItem('current_portal', 'app');
+                try {
+                  if (window.location.hash) {
+                    history.replaceState(null, '', window.location.pathname + window.location.search);
+                  }
+                } catch {
+                  // ignore
+                }
+                setStatusMessage({ type: '', text: '' }); 
+              }}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                portalMode === 'app'
+                  ? 'bg-white text-gray-900 shadow-md border border-gray-100 font-black'
+                  : 'text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <Smartphone size={14} className={portalMode === 'app' ? 'text-blue-600' : 'text-gray-400'} />
+              <span>Field App / Staff</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { 
+                setPortalMode('super_admin'); 
+                localStorage.setItem('current_portal', 'super-admin');
+                setStatusMessage({ type: '', text: '' }); 
+              }}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                portalMode === 'super_admin'
+                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                  : 'text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <ShieldAlert size={14} className={portalMode === 'super_admin' ? 'text-slate-950' : 'text-amber-500'} />
+              <span>Super Admin Panel</span>
+            </button>
+          </div>
+          <p className="text-[11px] text-center mt-2 font-medium opacity-60">
+            {portalMode === 'super_admin' 
+              ? 'Direct root access to multi-tenant B2B command center'
+              : 'Sign in to mobile marketing, reports & shift tools'}
           </p>
         </div>
 
-        {statusMessage.text && (
-          <div className={`p-4 mb-6 rounded-xl text-xs font-medium border flex items-start gap-2.5 ${
-            statusMessage.type === 'pending_success' 
-              ? 'bg-blue-50 text-blue-900 border-blue-200' 
-              : statusMessage.type === 'pending_warning'
-              ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-xs'
-              : statusMessage.type === 'disabled_warning'
-              ? 'bg-gray-100 text-gray-800 border-gray-300'
-              : 'bg-red-50 text-red-700 border-red-200'
-          }`}>
-            <AlertTriangle className="shrink-0 mt-0.5" size={16} />
-            <div>
-              {statusMessage.type === 'pending_warning' && <p className="font-bold mb-0.5">Approval Required</p>}
-              {statusMessage.type === 'pending_success' && <p className="font-bold mb-0.5">Registration Queued</p>}
-              <p>{statusMessage.text}</p>
+        {/* ------------------------------------------------------------- */}
+        {/* MODE A: SUPER ADMIN COMMAND CENTER LOGIN                       */}
+        {/* ------------------------------------------------------------- */}
+        {portalMode === 'super_admin' ? (
+          <div>
+            <div className="text-center mb-6">
+              <div className="inline-flex p-3 rounded-2xl bg-amber-400/10 border border-amber-400/20 text-amber-400 mb-2.5 shadow-sm">
+                <ShieldAlert size={28} />
+              </div>
+              <h2 className="text-2xl font-black text-white tracking-tight">
+                Super Admin Clearance
+              </h2>
+              <p className="text-xs text-slate-400 font-medium mt-1">
+                Root Command Center for Multi-Tenant Management &amp; Billing
+              </p>
             </div>
+
+            {/* Error / Status Messages */}
+            {statusMessage.text && (
+              <div className={`p-3.5 mb-5 rounded-2xl text-xs font-medium border flex items-start gap-2.5 animate-in fade-in duration-200 ${
+                statusMessage.type === 'forbidden_403'
+                  ? 'bg-rose-950/80 border-rose-700/60 text-rose-200'
+                  : 'bg-rose-950/60 border-rose-800/50 text-rose-300'
+              }`}>
+                <AlertCircle className="shrink-0 mt-0.5 text-rose-400" size={16} />
+                <div>
+                  {statusMessage.type === 'forbidden_403' && (
+                    <p className="font-black text-rose-300 uppercase tracking-wider text-[10px] mb-0.5">
+                      403 Access Forbidden
+                    </p>
+                  )}
+                  <p>{statusMessage.text}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleSuperAdminSubmit} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Master Phone Identifier *
+                </label>
+                <div className="relative">
+                  <Phone size={15} className="absolute left-3.5 top-3.5 text-slate-500" />
+                  <input
+                    type="tel"
+                    required
+                    placeholder="9435188967"
+                    value={superPhone}
+                    onChange={e => setSuperPhone(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:ring-2 focus:ring-amber-400 focus:outline-hidden font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">Root authorized master identifier</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                  Master Clearance Passkey *
+                </label>
+                <div className="relative">
+                  <Lock size={15} className="absolute left-3.5 top-3.5 text-slate-500" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={superPasskey}
+                    onChange={e => setSuperPasskey(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:ring-2 focus:ring-amber-400 focus:outline-hidden font-mono"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">Default key: <code className="text-amber-400">admin123</code></p>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black py-3 rounded-xl transition-all shadow-lg shadow-amber-500/20 text-sm active:scale-98 flex items-center justify-center gap-2 cursor-pointer mt-5"
+              >
+                {loading ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" />
+                    <span>Verifying Master Session...</span>
+                  </>
+                ) : (
+                  <>
+                    <Key size={16} />
+                    <span>Enter Super Admin Command Center</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center border-t border-slate-800/80 pt-4 text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
+              <ShieldCheck size={14} className="text-emerald-400" />
+              <span>Isolated 256-Bit SSL Admin Management Channel</span>
+            </div>
+          </div>
+        ) : (
+          /* ------------------------------------------------------------- */
+          /* MODE B: STANDARD FIELD EXECUTIVE & STAFF LOGIN                */
+          /* ------------------------------------------------------------- */
+          <div>
+            <div className="text-center mb-6">
+              <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+                {isRegistering ? 'Field Executive Registration' : 'SM Marketing'}
+              </h2>
+              <p className="text-xs text-gray-500 font-semibold mt-1 tracking-wide">
+                {isRegistering ? 'Submit profile for Administrator approval' : 'Official Marketing APP OF SMM'}
+              </p>
+            </div>
+
+            {statusMessage.text && (
+              <div className={`p-4 mb-6 rounded-xl text-xs font-medium border flex items-start gap-2.5 ${
+                statusMessage.type === 'pending_success' 
+                  ? 'bg-blue-50 text-blue-900 border-blue-200' 
+                  : statusMessage.type === 'pending_warning'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 shadow-xs'
+                  : statusMessage.type === 'disabled_warning'
+                  ? 'bg-gray-100 text-gray-800 border-gray-300'
+                  : 'bg-red-50 text-red-700 border-red-200'
+              }`}>
+                <AlertTriangle className="shrink-0 mt-0.5" size={16} />
+                <div>
+                  {statusMessage.type === 'pending_warning' && <p className="font-bold mb-0.5">Approval Required</p>}
+                  {statusMessage.type === 'pending_success' && <p className="font-bold mb-0.5">Registration Queued</p>}
+                  <p>{statusMessage.text}</p>
+                </div>
+              </div>
+            )}
+
+            <form onSubmit={handleStandardSubmit} className="space-y-4">
+              {isRegistering && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Full Legal Name</label>
+                    <input type="text" placeholder="e.g. Rahul Sharma" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Phone Number</label>
+                    <input type="tel" placeholder="e.g. 9876543210" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">Base / Current Address</label>
+                    <input type="text" placeholder="e.g. Ranchi, Jharkhand" value={currentAddress} onChange={e => setCurrentAddress(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Email / Phone Number</label>
+                <input type="text" placeholder="Enter phone or email" value={emailOrPhone} onChange={e => setEmailOrPhone(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
+                <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
+              </div>
+
+              <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm text-sm active:scale-98 cursor-pointer">
+                {loading ? 'Processing...' : isRegistering ? 'Submit for Admin Approval' : 'Sign In to Portal'}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center border-t border-gray-100 pt-4 space-y-2">
+              <button onClick={() => { setIsRegistering(!isRegistering); setStatusMessage({ type: '', text: '' }); }} className="text-blue-600 text-xs font-bold hover:underline block w-full text-center">
+                {isRegistering ? 'Already have an approved account? Sign In' : 'New Executive? Register for Approval Gateway'}
+              </button>
+              <div className="pt-2 border-t border-gray-100 flex items-center justify-center gap-1.5 text-[11px] text-gray-500">
+                <Scale size={13} className="text-indigo-600 shrink-0" />
+                <span>DPDP Act 2023 &amp; IT Act 2000 Compliant.</span>
+                <button
+                  type="button"
+                  onClick={() => setIsLegalModalOpen(true)}
+                  className="text-indigo-600 hover:text-indigo-800 font-bold hover:underline ml-1"
+                >
+                  Legal Hub
+                </button>
+              </div>
+            </div>
+
+            {/* Indian Statutory Compliance Modal */}
+            <IndianStatutoryComplianceModal
+              isOpen={isLegalModalOpen}
+              onClose={() => setIsLegalModalOpen(false)}
+            />
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {isRegistering && (
-            <>
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Full Legal Name</label>
-                <input type="text" placeholder="e.g. Rahul Sharma" value={fullName} onChange={e => setFullName(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Phone Number</label>
-                <input type="tel" placeholder="e.g. 9876543210" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Base / Current Address</label>
-                <input type="text" placeholder="e.g. Ranchi, Jharkhand" value={currentAddress} onChange={e => setCurrentAddress(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
-              </div>
-            </>
-          )}
-
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Email / Phone Number</label>
-            <input type="text" placeholder="Enter phone or email" value={emailOrPhone} onChange={e => setEmailOrPhone(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Password</label>
-            <input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500" required />
-          </div>
-
-          <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-sm text-sm active:scale-98">
-            {loading ? 'Processing...' : isRegistering ? 'Submit for Admin Approval' : 'Sign In to Portal'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center border-t border-gray-100 pt-4">
-          <button onClick={() => { setIsRegistering(!isRegistering); setStatusMessage({ type: '', text: '' }); }} className="text-blue-600 text-xs font-bold hover:underline">
-            {isRegistering ? 'Already have an approved account? Sign In' : 'New Executive? Register for Approval Gateway'}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -1069,7 +1352,26 @@ export function AppContent() {
     return safeJsonParse(localStorage.getItem('user'), null);
   });
   const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [currentPage, setCurrentPage] = useState('admin-dashboard');
+  const [currentPage, setCurrentPage] = useState(() => {
+    try {
+      const hash = window.location.hash.replace('#', '').replace('/', '').trim().toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search);
+      const panelParam = (urlParams.get('panel') || urlParams.get('page') || '').toLowerCase();
+      const isSuperAdminUrl = hash === 'super-admin' || hash === 'superadmin' || panelParam === 'super-admin' || panelParam === 'superadmin';
+      const activePortal = localStorage.getItem('current_portal');
+      const stored = safeJsonParse(localStorage.getItem('user'), null);
+
+      if (isSuperAdminUrl || activePortal === 'super-admin') {
+        return 'super-admin';
+      }
+      if (stored?.role === 'ADMIN' || stored?.role === 'EXECUTIVE_ASSISTANT' || stored?.role === 'SUPER_ADMIN' || stored?.role === 'ADMINISTRATOR') {
+        return 'admin-dashboard';
+      }
+      return 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
   const [selectedReportSubTab, setSelectedReportSubTab] = useState('overview');
   const [hasGrantedPermissions, setHasGrantedPermissions] = useState(false);
   const [revokedPermissionReason, setRevokedPermissionReason] = useState('');
@@ -1077,6 +1379,7 @@ export function AppContent() {
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isPermissionsHubOpen, setIsPermissionsHubOpen] = useState(false);
+  const [isLegalComplianceOpen, setIsLegalComplianceOpen] = useState(false);
   const [pushToasts, setPushToasts] = useState([]);
 
   // Subscribe to live In-App Push Toasts
@@ -1089,6 +1392,36 @@ export function AppContent() {
       }, toast.duration || 5000);
     });
     return () => unsubscribe();
+  }, []);
+
+  // Helper to parse deep-link URLs
+  const checkIsSuperAdminUrl = () => {
+    try {
+      const hash = window.location.hash.replace('#', '').replace('/', '').trim().toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search);
+      const panelParam = (urlParams.get('panel') || urlParams.get('page') || '').toLowerCase();
+      const isSuperAdminFlag = urlParams.get('superadmin') === 'true' || urlParams.get('control') === 'true';
+      return hash === 'super-admin' || hash === 'superadmin' || panelParam === 'super-admin' || panelParam === 'superadmin' || isSuperAdminFlag;
+    } catch {
+      return false;
+    }
+  };
+
+  // Handle URL Deep-Linking for Super Admin Control Panel
+  useEffect(() => {
+    const handleUrlNavigation = () => {
+      if (checkIsSuperAdminUrl()) {
+        setCurrentPage('super-admin');
+      }
+    };
+
+    handleUrlNavigation();
+    window.addEventListener('hashchange', handleUrlNavigation);
+    window.addEventListener('popstate', handleUrlNavigation);
+    return () => {
+      window.removeEventListener('hashchange', handleUrlNavigation);
+      window.removeEventListener('popstate', handleUrlNavigation);
+    };
   }, []);
 
   // Fetch unread notifications count
@@ -1118,7 +1451,13 @@ export function AppContent() {
       const parsed = safeJsonParse(localStorage.getItem('user'), null);
       if (parsed) {
         setUser(parsed);
-        if (parsed.role === 'ADMIN' || parsed.role === 'EXECUTIVE_ASSISTANT') {
+        const activePortal = localStorage.getItem('current_portal');
+        const isUrlSuperAdmin = checkIsSuperAdminUrl();
+
+        if (activePortal === 'super-admin' || isUrlSuperAdmin) {
+          setCurrentPage('super-admin');
+          setHasGrantedPermissions(true);
+        } else if (parsed.role === 'ADMIN' || parsed.role === 'EXECUTIVE_ASSISTANT' || parsed.role === 'SUPER_ADMIN' || parsed.role === 'ADMINISTRATOR') {
           setCurrentPage('admin-dashboard');
           setHasGrantedPermissions(true); // Admins and Executive Assistants do not require field sensor guard
         } else {
@@ -1235,8 +1574,18 @@ export function AppContent() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('saas_super_admin_session');
+    localStorage.removeItem('current_portal');
+    try {
+      if (window.location.hash || window.location.search) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+    } catch {
+      // ignore
+    }
     setToken('');
     setUser(null);
+    setCurrentPage('dashboard');
     setHasGrantedPermissions(false);
     setRevokedPermissionReason('');
     setIsBypassed(false);
@@ -1265,10 +1614,14 @@ export function AppContent() {
   if (!token) {
     return (
       <Login 
-        onLogin={(t, u) => { 
+        onLogin={(t, u, destination) => { 
           setToken(t); 
-          setUser(u); 
-          if (u.role === 'ADMIN') {
+          setUser(u);
+          localStorage.setItem('current_portal', destination || 'app');
+          if (destination === 'super-admin') {
+            setCurrentPage('super-admin');
+            setHasGrantedPermissions(true);
+          } else if (u?.role === 'ADMIN' || u?.role === 'EXECUTIVE_ASSISTANT' || u?.role === 'SUPER_ADMIN') {
             setCurrentPage('admin-dashboard');
             setHasGrantedPermissions(true);
           } else {
@@ -1284,7 +1637,31 @@ export function AppContent() {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-500 font-semibold text-sm">Initializing portal session...</div>;
   }
 
-  const isAdmin = user && user.role === 'ADMIN';
+  const rawUserPhone = String(user?.phoneNumber || user?.phone || user?.phone_number || '').replace(/\D/g, '');
+  const hasSuperAdminClearance = rawUserPhone === '9435188967' || rawUserPhone.endsWith('9435188967') || user?.role === 'SUPER_ADMIN' || user?.role === 'SUPERADMIN';
+
+  // Strict Total Isolation: Render Super Admin Command Center ONLY when currently on super-admin page
+  if (currentPage === 'super-admin') {
+    return (
+      <SuperAdminApp 
+        onLogout={handleLogout} 
+        user={user}
+        onSwitchToApp={() => {
+          localStorage.setItem('current_portal', 'app');
+          try {
+            if (window.location.hash || window.location.search) {
+              history.replaceState(null, '', window.location.pathname);
+            }
+          } catch {
+            // ignore
+          }
+          setCurrentPage(user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN' || user?.role === 'EXECUTIVE_ASSISTANT' ? 'admin-dashboard' : 'dashboard');
+        }}
+      />
+    );
+  }
+
+  const isAdmin = user && (user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' || user.role === 'ADMINISTRATOR' || hasSuperAdminClearance);
   const isExecutiveAssistant = user && user.role === 'EXECUTIVE_ASSISTANT';
   const isPrivilegedStaff = isAdmin || isExecutiveAssistant;
 
@@ -1299,6 +1676,16 @@ export function AppContent() {
   }
 
   const renderPage = () => {
+    // If currentPage is super-admin, render SuperAdminDashboard
+    if (currentPage === 'super-admin') {
+      return (
+        <SuperAdminDashboard 
+          user={user} 
+          onBack={handleLogout} 
+        />
+      );
+    }
+
     if (isAdmin) {
       switch (currentPage) {
         case 'admin-dashboard': return (
@@ -1320,6 +1707,7 @@ export function AppContent() {
         case 'admin-config': return <AdminConfig user={user} />;
         case 'admin-ums': return <AdminUMS user={user} />;
         case 'profile': return <ProfileSettings user={user} onLogout={handleLogout} />;
+        case 'super-admin': return <SuperAdminDashboard user={user} onBack={() => setCurrentPage('admin-dashboard')} />;
         default: return <AdminDashboard user={user} />;
       }
     } else if (isExecutiveAssistant) {
@@ -1406,6 +1794,13 @@ export function AppContent() {
         onClose={() => setIsPermissionsHubOpen(false)}
       />
 
+      {/* Indian Statutory Compliance Modal */}
+      <IndianStatutoryComplianceModal
+        isOpen={isLegalComplianceOpen}
+        onClose={() => setIsLegalComplianceOpen(false)}
+        user={user}
+      />
+
       {/* 3. Fallback Lock Screen Overlay if permissions are revoked mid-shift */}
       {!isAdmin && revokedPermissionReason && !isBypassed && (
         <RevokedPermissionsOverlay
@@ -1416,67 +1811,98 @@ export function AppContent() {
         />
       )}
 
-      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3.5 flex justify-between items-center sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight leading-none">
-                SMM - FMA
-              </h1>
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
-                isAdmin 
-                  ? 'bg-purple-100 text-purple-800' 
+      {/* Suppress standard App Header if in isolated Super Admin Command Panel */}
+      {currentPage !== 'super-admin' && (
+        <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3.5 flex justify-between items-center sticky top-0 z-10 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg sm:text-xl font-black text-gray-900 tracking-tight leading-none">
+                  SMM - FMA
+                </h1>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                  isAdmin 
+                    ? 'bg-purple-100 text-purple-800' 
+                    : isExecutiveAssistant 
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300' 
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {isAdmin ? 'Admin' : isExecutiveAssistant ? 'Exec Assistant (View Only)' : 'Field Exec'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 font-medium mt-1 truncate max-w-[200px] sm:max-w-xs">
+                {isAdmin 
+                  ? 'Sundaram Mahadeo Group • Admin Controller' 
                   : isExecutiveAssistant 
-                  ? 'bg-amber-100 text-amber-800 border border-amber-300' 
-                  : 'bg-blue-100 text-blue-800'
-              }`}>
-                {isAdmin ? 'Admin' : isExecutiveAssistant ? 'Exec Assistant (View Only)' : 'Field Exec'}
-              </span>
+                  ? `${user.fullName} • Executive Assistant (Reports & Directory View)` 
+                  : `${user.fullName} • Shift Active`}
+              </p>
             </div>
-            <p className="text-xs text-gray-500 font-medium mt-1 truncate max-w-[200px] sm:max-w-xs">
-              {isAdmin 
-                ? 'Sundaram Mahadeo Group • Admin Controller' 
-                : isExecutiveAssistant 
-                ? `${user.fullName} • Executive Assistant (Reports & Directory View)` 
-                : `${user.fullName} • Shift Active`}
-            </p>
           </div>
-        </div>
 
-        <div className="flex items-center gap-2">
-          {/* Device & Sensor Diagnostics Button */}
-          <button
-            onClick={() => setIsPermissionsHubOpen(true)}
-            title="Device Sensors & Permissions"
-            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-xl text-xs font-bold transition-all border border-slate-200"
-          >
-            <Smartphone size={15} />
-            <span className="hidden sm:inline">Sensors</span>
-          </button>
-
-          {/* Notification Bell Button */}
-          <button
-            onClick={() => setIsNotificationCenterOpen(true)}
-            title="Notifications & Dispatches"
-            className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-          >
-            <Bell size={18} />
-            {unreadNotificationsCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
-                {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
-              </span>
+          <div className="flex items-center gap-2">
+            {/* Super Admin Command Center Quick Jump (Only for authorized Master Admin) */}
+            {hasSuperAdminClearance && (
+              <button
+                onClick={() => {
+                  localStorage.setItem('current_portal', 'super-admin');
+                  setCurrentPage('super-admin');
+                }}
+                title="Open SaaS Super Admin Multi-Tenant Panel"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 rounded-xl text-xs font-black transition-all shadow-xs active:scale-98 cursor-pointer"
+              >
+                <ShieldAlert size={14} className="text-slate-950" />
+                <span className="hidden sm:inline">Super Admin</span>
+              </button>
             )}
-          </button>
 
-          <button 
-            onClick={handleLogout} 
-            title="Sign Out"
-            className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
-      </header>
+            {/* Offline-First IndexedDB Sync Capsule */}
+            <OfflineSyncIndicator />
+
+            {/* Device & Sensor Diagnostics Button */}
+            <button
+              onClick={() => setIsPermissionsHubOpen(true)}
+              title="Device Sensors & Permissions"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-xl text-xs font-bold transition-all border border-slate-200"
+            >
+              <Smartphone size={15} />
+              <span className="hidden sm:inline">Sensors</span>
+            </button>
+
+            {/* Legal Compliance & DPDP Act Button */}
+            <button
+              onClick={() => setIsLegalComplianceOpen(true)}
+              title="Statutory Legal Compliance (DPDP Act, IT Act, NPCI UPI)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all border border-indigo-200"
+            >
+              <Scale size={15} />
+              <span className="hidden sm:inline">Legal</span>
+            </button>
+
+            {/* Notification Bell Button */}
+            <button
+              onClick={() => setIsNotificationCenterOpen(true)}
+              title="Notifications & Dispatches"
+              className="relative p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+            >
+              <Bell size={18} />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow-xs animate-pulse">
+                  {unreadNotificationsCount > 9 ? '9+' : unreadNotificationsCount}
+                </span>
+              )}
+            </button>
+
+            <button 
+              onClick={handleLogout} 
+              title="Sign Out"
+              className="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+            >
+              <LogOut size={18} />
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* In-App Notification Center Drawer */}
       <NotificationCenter
@@ -1486,36 +1912,39 @@ export function AppContent() {
         onCountUpdated={(cnt) => setUnreadNotificationsCount(cnt)}
       />
       
-      <main className="flex-1 p-4 sm:p-6 max-w-4xl mx-auto w-full">
+      <main className={`flex-1 ${currentPage === 'super-admin' ? 'p-0 max-w-7xl mx-auto w-full' : 'p-4 sm:p-6 max-w-4xl mx-auto w-full'}`}>
         {renderPage()}
       </main>
 
-      {isAdmin ? (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
-          <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' || currentPage === 'dashboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
-          <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
-          <button onClick={() => setCurrentPage('admin-reports')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><FileText size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Reports</span></button>
-          <button onClick={() => setCurrentPage('admin-ums')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-ums' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">UMS</span></button>
-          <button onClick={() => setCurrentPage('admin-config')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-config' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Settings2 size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Config</span></button>
-          <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
-        </nav>
-      ) : isExecutiveAssistant ? (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-amber-200 grid grid-cols-5 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
-          <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
-          <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('firm_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'firm_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Firm View</span></button>
-          <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('exec_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'exec_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Exec View</span></button>
-          <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><BarChart size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
-          <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
-        </nav>
-      ) : (
-        <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
-          <button onClick={() => setCurrentPage('dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'dashboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium">Shift</span></button>
-          <button onClick={() => setCurrentPage('visits')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'visits' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><CheckCircle size={20} /><span className="text-[10px] font-medium">Log Visit</span></button>
-          <button onClick={() => setCurrentPage('history')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'history' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><History size={20} /><span className="text-[10px] font-medium">History</span></button>
-          <button onClick={() => setCurrentPage('onboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'onboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium">Onboard</span></button>
-          <button onClick={() => setCurrentPage('incentives')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'incentives' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><TrendingUp size={20} /><span className="text-[10px] font-medium">P & I</span></button>
-          <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium">Profile</span></button>
-        </nav>
+      {/* Standard bottom navigations are completely suppressed for Super Admin Panel */}
+      {currentPage !== 'super-admin' && (
+        isAdmin ? (
+          <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+            <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' || currentPage === 'dashboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
+            <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
+            <button onClick={() => setCurrentPage('admin-reports')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><FileText size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Reports</span></button>
+            <button onClick={() => setCurrentPage('admin-ums')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-ums' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">UMS</span></button>
+            <button onClick={() => setCurrentPage('admin-config')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-config' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Settings2 size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Config</span></button>
+            <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
+          </nav>
+        ) : isExecutiveAssistant ? (
+          <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-amber-200 grid grid-cols-5 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+            <button onClick={() => setCurrentPage('admin-dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-dashboard' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Dashboard</span></button>
+            <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('firm_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'firm_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Firm View</span></button>
+            <button onClick={() => { setCurrentPage('admin-reports'); setSelectedReportSubTab('exec_view'); }} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-reports' && selectedReportSubTab === 'exec_view' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Users size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Exec View</span></button>
+            <button onClick={() => setCurrentPage('admin-directory')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'admin-directory' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><BarChart size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Directory</span></button>
+            <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-amber-700 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium truncate w-full text-center">Profile</span></button>
+          </nav>
+        ) : (
+          <nav className="fixed bottom-0 left-0 right-0 max-w-4xl mx-auto bg-white/95 backdrop-blur-md border-t border-gray-200 grid grid-cols-6 p-2 z-10 shadow-[0_-4px_6px_-1px_rgb(0,0,0,0.05)]">
+            <button onClick={() => setCurrentPage('dashboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'dashboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Activity size={20} /><span className="text-[10px] font-medium">Shift</span></button>
+            <button onClick={() => setCurrentPage('visits')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'visits' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><CheckCircle size={20} /><span className="text-[10px] font-medium">Log Visit</span></button>
+            <button onClick={() => setCurrentPage('history')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'history' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><History size={20} /><span className="text-[10px] font-medium">History</span></button>
+            <button onClick={() => setCurrentPage('onboard')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'onboard' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><Store size={20} /><span className="text-[10px] font-medium">Onboard</span></button>
+            <button onClick={() => setCurrentPage('incentives')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'incentives' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><TrendingUp size={20} /><span className="text-[10px] font-medium">P & I</span></button>
+            <button onClick={() => setCurrentPage('profile')} className={`flex flex-col items-center justify-center space-y-1 ${currentPage === 'profile' ? 'text-blue-600 font-bold' : 'text-gray-500 hover:text-gray-900'}`}><User size={20} /><span className="text-[10px] font-medium">Profile</span></button>
+          </nav>
+        )
       )}
     </div>
   );

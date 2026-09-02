@@ -11,6 +11,8 @@ import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
 import { sendMobilePushNotification } from '../lib/notificationEngine';
 import { DEFAULT_APP_CONFIG } from '../lib/supabaseDataService';
+import { queueOfflineVisit } from '../lib/offlineSyncEngine';
+import DynamicUpiQrModal from './DynamicUpiQrModal';
 
 // Haversine distance calculator in meters between two GPS coordinates
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
@@ -96,48 +98,102 @@ export default function VisitLogger({ user, onNavigateToShift }) {
   const [isClientSuggestionsOpen, setIsClientSuggestionsOpen] = useState(false);
   const searchContainerRef = useRef(null);
 
-  // Base Form State
+  // Helper to load persistent draft from LocalStorage so entering data is never lost or deleted
+  const loadSavedDraft = () => {
+    try {
+      const saved = localStorage.getItem('visit_logger_form_draft');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  };
+  const initialDraft = loadSavedDraft();
+
+  // Base Form State (Initialized with saved draft if available)
   const [editingVisitId, setEditingVisitId] = useState(null);
-  const [clientName, setClientName] = useState('');
-  const [visitPurpose, setVisitPurpose] = useState('Sales'); // 'Sales' | 'Payment Collection' | 'Follow-up' | 'Support' | 'Onboarding'
+  const [clientName, setClientName] = useState(() => initialDraft?.clientName || '');
+  const [visitPurpose, setVisitPurpose] = useState(() => initialDraft?.visitPurpose || 'Sales'); // 'Sales' | 'Payment Collection' | 'Follow-up' | 'Support' | 'Onboarding'
 
   // CONDITIONAL SECTION 1: Multi-Product Sales Items
   // Structure: [{ id, productName, unit, quantity, billingAmount, unitCost, incentiveRate }]
-  const [salesProducts, setSalesProducts] = useState([
-    {
-      id: 'item_1',
-      productName: configuredProducts[0]?.name || 'Standard Product',
-      unit: configuredProducts[0]?.unit || 'Bags',
-      quantity: '',
-      billingAmount: '',
-      unitCost: '0.00',
-      incentiveRate: configuredProducts[0]?.rate || 10
+  const [salesProducts, setSalesProducts] = useState(() => {
+    if (Array.isArray(initialDraft?.salesProducts) && initialDraft.salesProducts.length > 0) {
+      return initialDraft.salesProducts;
     }
-  ]);
-  const [deliveryType, setDeliveryType] = useState('FOR Factory');
+    const defaultProd = configuredProducts[0] || { name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 };
+    return [
+      {
+        id: 'item_1',
+        productName: defaultProd.name,
+        unit: defaultProd.unit || 'Bags',
+        quantity: '',
+        billingAmount: '',
+        unitCost: '0.00',
+        incentiveRate: defaultProd.rate || 10
+      }
+    ];
+  });
+  const [deliveryType, setDeliveryType] = useState(() => initialDraft?.deliveryType || 'FOR Factory');
 
   // CONDITIONAL SECTION 2: Payment Collection Inputs
-  const [paymentMethod, setPaymentMethod] = useState('UPI'); // NEFT, UPI, Bank Transfer, Cheque, Cash Deposit
-  const [transactionAmount, setTransactionAmount] = useState('');
-  const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [transactionId, setTxnId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState(() => initialDraft?.paymentMethod || 'UPI'); // NEFT, UPI, Bank Transfer, Cheque, Cash Deposit
+  const [transactionAmount, setTransactionAmount] = useState(() => initialDraft?.transactionAmount || '');
+  const [transactionDate, setTransactionDate] = useState(() => initialDraft?.transactionDate || new Date().toISOString().split('T')[0]);
+  const [transactionId, setTxnId] = useState(() => initialDraft?.transactionId || '');
 
   // CONDITIONAL SECTION 3: Follow-up / Support / Onboarding Inputs
-  const [discussionTopic, setDiscussionTopic] = useState('');
-  const [nextFollowUpDate, setNextFollowUpDate] = useState('');
+  const [discussionTopic, setDiscussionTopic] = useState(() => initialDraft?.discussionTopic || '');
+  const [nextFollowUpDate, setNextFollowUpDate] = useState(() => initialDraft?.nextFollowUpDate || '');
 
   // Common Additional Inputs
-  const [note, setNote] = useState('');
-  const [photo, setPhoto] = useState('');
-  const [photoPreview, setPhotoPreview] = useState('');
+  const [note, setNote] = useState(() => initialDraft?.note || '');
+  const [photo, setPhoto] = useState(() => initialDraft?.photo || '');
+  const [photoPreview, setPhotoPreview] = useState(() => initialDraft?.photoPreview || '');
   const [gpsLocation, setGpsLocation] = useState({ lat: 23.3441, lng: 85.3096 });
   const [isGpsLocating, setIsGpsLocating] = useState(false);
+  const [hasUnsavedDraft, setHasUnsavedDraft] = useState(Boolean(initialDraft));
 
   // UI Status
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+
+  // Dynamic BharatPe / NPCI UPI QR Modal State
+  const [isUpiQrModalOpen, setIsUpiQrModalOpen] = useState(false);
+  const [upiQrParams, setUpiQrParams] = useState({
+    firmName: '',
+    firmUpiId: '',
+    amount: '',
+    invoiceNote: ''
+  });
+
+  const handleOpenUpiQr = (customAmount = null) => {
+    const targetFirmName = clientName.trim() || matchedFirm?.name || 'Sundaram Mahadeo Group';
+    const targetUpiId = matchedFirm?.upiId || matchedFirm?.upi_id || 'sundarammahadeo@icici';
+    const targetAmount = customAmount !== null 
+      ? customAmount 
+      : (visitPurpose === 'Sales' ? salesTotals.totalBilling : (transactionAmount || selectedFirmHistory?.netDues || 0));
+
+    setUpiQrParams({
+      firmName: targetFirmName,
+      firmUpiId: targetUpiId,
+      amount: targetAmount,
+      invoiceNote: `Invoice settlement for ${targetFirmName}`
+    });
+    setIsUpiQrModalOpen(true);
+  };
+
+  const handlePaymentConfirmedFromQr = (details) => {
+    setPaymentMethod('UPI');
+    setTransactionAmount(details.amount.toString());
+    setTxnId(details.txnId);
+    if (visitPurpose !== 'Payment Collection') {
+      setVisitPurpose('Payment Collection');
+    }
+    setSuccessMsg(`UPI Payment of ₹${details.amount.toLocaleString('en-IN')} confirmed via ${details.upiId}!`);
+    setTimeout(() => setSuccessMsg(''), 4500);
+  };
 
   // Close suggestions dropdown on outside click
   useEffect(() => {
@@ -167,6 +223,49 @@ export default function VisitLogger({ user, onNavigateToShift }) {
     window.addEventListener('app_config_updated', handleConfigUpdate);
     return () => window.removeEventListener('app_config_updated', handleConfigUpdate);
   }, []);
+
+  // Automatic Draft Persistence: save form inputs so data being entered is never lost or deleted
+  useEffect(() => {
+    if (editingVisitId) return; // Do not overwrite draft when editing historical logs
+
+    const hasContent = Boolean(
+      clientName.trim() ||
+      transactionAmount ||
+      transactionId.trim() ||
+      discussionTopic.trim() ||
+      nextFollowUpDate ||
+      note.trim() ||
+      photoPreview ||
+      salesProducts.some(p => p.quantity || p.billingAmount)
+    );
+
+    if (hasContent) {
+      const draftData = {
+        clientName,
+        visitPurpose,
+        salesProducts,
+        deliveryType,
+        paymentMethod,
+        transactionAmount,
+        transactionDate,
+        transactionId,
+        discussionTopic,
+        nextFollowUpDate,
+        note,
+        photo,
+        photoPreview,
+        savedAt: new Date().toISOString()
+      };
+      try {
+        localStorage.setItem('visit_logger_form_draft', JSON.stringify(draftData));
+        setHasUnsavedDraft(true);
+      } catch (e) {}
+    }
+  }, [
+    clientName, visitPurpose, salesProducts, deliveryType,
+    paymentMethod, transactionAmount, transactionDate, transactionId,
+    discussionTopic, nextFollowUpDate, note, photo, photoPreview, editingVisitId
+  ]);
 
   const checkShiftStatus = async () => {
     try {
@@ -539,30 +638,21 @@ export default function VisitLogger({ user, onNavigateToShift }) {
     resetFormFields();
   };
 
-  // State isolation handler: clears purpose-specific inputs when switching modes
+  // Safe non-destructive purpose switcher: preserves user inputs when switching modes
   const handlePurposeChange = (newPurpose) => {
     setVisitPurpose(newPurpose);
-    if (!editingVisitId) {
-      if (newPurpose === 'Sales') {
-        setTransactionAmount('');
-        setTxnId('');
-        setDiscussionTopic('');
-        setNextFollowUpDate('');
-      } else if (newPurpose === 'Payment Collection') {
-        setDiscussionTopic('');
-        setNextFollowUpDate('');
-      } else {
-        setTransactionAmount('');
-        setTxnId('');
-      }
-    }
+    // Deliberately keep all entered fields intact so that user data is NEVER deleted while typing or exploring modes
   };
 
   const resetFormFields = () => {
+    try {
+      localStorage.removeItem('visit_logger_form_draft');
+    } catch (e) {}
+    setHasUnsavedDraft(false);
     setClientName('');
     setClientSearchQuery('');
     setVisitPurpose('Sales');
-    const firstCfg = configuredProducts[0] || { name: 'Standard Product', unit: 'Bags', rate: 10 };
+    const firstCfg = configuredProducts[0] || { name: 'Cement (UltraTech / ACC)', unit: 'Bags', rate: 10 };
     setSalesProducts([
       {
         id: 'item_1',
@@ -734,6 +824,13 @@ export default function VisitLogger({ user, onNavigateToShift }) {
       setVisits(updatedVisits);
       localStorage.setItem('user_visits', JSON.stringify(updatedVisits));
 
+      // Buffer into IndexedDB Offline Engine immediately
+      try {
+        await queueOfflineVisit(newVisitObj);
+      } catch (idbErr) {
+        console.warn('IndexedDB buffer note:', idbErr);
+      }
+
       // Update active shift visits counter
       try {
         const activeShiftStr = localStorage.getItem('activeShiftData');
@@ -760,8 +857,8 @@ export default function VisitLogger({ user, onNavigateToShift }) {
       } catch (err) {
         setSuccessMsg(`Visit for "${clientName.trim()}" (${visitPurpose}) saved locally (Offline Ready).`);
         sendMobilePushNotification(
-          '💾 Visit Saved (Offline)',
-          `Visit for ${clientName.trim()} saved locally. Will sync automatically.`,
+          '💾 Visit Saved (Offline IndexedDB)',
+          `Visit for ${clientName.trim()} saved to local offline database. Will sync automatically upon network reconnection.`,
           { type: 'info' }
         );
       }
@@ -899,6 +996,21 @@ export default function VisitLogger({ user, onNavigateToShift }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {!editingVisitId && hasUnsavedDraft && (
+              <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Draft Saved</span>
+                <button
+                  type="button"
+                  onClick={resetFormFields}
+                  className="ml-1 text-slate-400 hover:text-rose-600 transition-colors text-[10px] underline"
+                  title="Clear saved draft"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] font-mono text-slate-600">
               <MapPin size={12} className={isGpsLocating ? 'text-amber-500 animate-pulse' : 'text-blue-600'} />
               <span>GPS: {gpsLocation.lat}, {gpsLocation.lng}</span>
@@ -915,7 +1027,16 @@ export default function VisitLogger({ user, onNavigateToShift }) {
           </div>
         </div>
 
-        <form onSubmit={handleSubmitVisit} className="space-y-6">
+        <form 
+          onSubmit={handleSubmitVisit} 
+          onKeyDown={(e) => {
+            // Prevent accidental form submission when pressing Enter in text/number inputs
+            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+              e.preventDefault();
+            }
+          }}
+          className="space-y-6"
+        >
           {/* PROACTIVE AUTO-DETECTED NEARBY FIRM PROMPT */}
           {closestNearbyFirm && (!clientName || clientName.trim() !== closestNearbyFirm.name) && (
             <div className="p-3.5 bg-gradient-to-r from-emerald-500/10 via-emerald-50 to-blue-50/50 border border-emerald-300/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1">
@@ -1267,7 +1388,7 @@ export default function VisitLogger({ user, onNavigateToShift }) {
               </div>
 
               {/* GRAND TOTAL SUMMARY BAR */}
-              <div className="p-4 bg-gradient-to-r from-blue-900 to-indigo-950 text-white rounded-xl shadow-md flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 bg-gradient-to-r from-blue-900 via-indigo-900 to-indigo-950 text-white rounded-xl shadow-md flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-white/10 rounded-lg text-blue-300">
                     <Calculator size={20} />
@@ -1282,11 +1403,25 @@ export default function VisitLogger({ user, onNavigateToShift }) {
                   </div>
                 </div>
 
-                <div className="text-right">
-                  <p className="text-[10px] uppercase font-bold text-blue-200">Total Billing Amount</p>
-                  <p className="text-xl sm:text-2xl font-black text-emerald-300 font-mono tracking-tight">
-                    ₹{salesTotals.totalBilling.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </p>
+                <div className="flex items-center gap-3">
+                  {salesTotals.totalBilling > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenUpiQr(salesTotals.totalBilling)}
+                      className="px-3 py-2 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 text-xs font-black rounded-xl shadow-lg transition-all flex items-center gap-1.5"
+                      title="Generate dynamic UPI QR Code for this order"
+                    >
+                      <Sparkles size={14} className="text-emerald-950 animate-pulse" />
+                      <span>⚡ Instant UPI QR</span>
+                    </button>
+                  )}
+
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase font-bold text-blue-200">Total Billing Amount</p>
+                    <p className="text-xl sm:text-2xl font-black text-emerald-300 font-mono tracking-tight">
+                      ₹{salesTotals.totalBilling.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1420,73 +1555,99 @@ export default function VisitLogger({ user, onNavigateToShift }) {
               )}
 
               {/* PAYMENT COLLECTION INPUTS */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-                {/* Payment Method */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Payment Method <span className="text-rose-500">*</span>
-                  </label>
-                  <select
-                    value={paymentMethod || 'UPI'}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
-                    required
+              <div className="space-y-3">
+                {/* Instant Dynamic UPI QR Action Bar */}
+                <div className="p-3 bg-gradient-to-r from-emerald-600 to-teal-700 rounded-xl text-white flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-white/20 rounded-lg">
+                      <Sparkles size={16} className="text-emerald-200 animate-pulse" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-black">Dynamic BharatPe / NPCI UPI QR Generator</p>
+                      <p className="text-[11px] text-emerald-100">
+                        Dealer scans live screen to settle exact amount to <span className="font-bold underline">{matchedFirm?.upiId || 'Firm UPI ID'}</span> with zero manual entry
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenUpiQr(transactionAmount || selectedFirmHistory?.netDues || null)}
+                    className="px-3.5 py-1.5 bg-white text-emerald-900 hover:bg-emerald-50 active:scale-95 text-xs font-black rounded-lg shadow-sm transition-all flex items-center justify-center gap-1.5 shrink-0"
                   >
-                    <option value="UPI">Google Pay / UPI</option>
-                    <option value="NEFT">NEFT / NetBanking</option>
-                    <option value="Bank Transfer">Direct Bank Transfer</option>
-                    <option value="Cheque">Cheque Deposit</option>
-                    <option value="Cash Deposit">Cash Deposit</option>
-                  </select>
+                    <CreditCard size={14} className="text-emerald-700" />
+                    <span>⚡ Show Dynamic QR</span>
+                  </button>
                 </div>
 
-                {/* Transaction Amount */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Collected Amount (₹) <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+                  {/* Payment Method */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Payment Method <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={paymentMethod || 'UPI'}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
+                      required
+                    >
+                      <option value="UPI">Google Pay / UPI</option>
+                      <option value="NEFT">NEFT / NetBanking</option>
+                      <option value="Bank Transfer">Direct Bank Transfer</option>
+                      <option value="Cheque">Cheque Deposit</option>
+                      <option value="Cash Deposit">Cash Deposit</option>
+                    </select>
+                  </div>
+
+                  {/* Transaction Amount */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Collected Amount (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="1"
+                        placeholder="₹ 0.00"
+                        value={transactionAmount ?? ''}
+                        onChange={(e) => setTransactionAmount(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2.5 text-sm font-black border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 text-emerald-950 font-mono"
+                        required
+                      />
+                      <IndianRupee size={15} className="absolute left-2.5 top-3 text-emerald-600" />
+                    </div>
+                  </div>
+
+                  {/* Transaction Date */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Transaction Date <span className="text-rose-500">*</span>
+                    </label>
                     <input
-                      type="number"
-                      step="any"
-                      min="1"
-                      placeholder="₹ 0.00"
-                      value={transactionAmount ?? ''}
-                      onChange={(e) => setTransactionAmount(e.target.value)}
-                      className="w-full pl-8 pr-3 py-2.5 text-sm font-black border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 text-emerald-950 font-mono"
+                      type="date"
+                      value={transactionDate || ''}
+                      onChange={(e) => setTransactionDate(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
                       required
                     />
-                    <IndianRupee size={15} className="absolute left-2.5 top-3 text-emerald-600" />
                   </div>
-                </div>
 
-                {/* Transaction Date */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Transaction Date <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={transactionDate || ''}
-                    onChange={(e) => setTransactionDate(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-semibold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
-                    required
-                  />
-                </div>
-
-                {/* Transaction ID */}
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Txn ID / UTR / Cheque No. <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. UTR-928410 or CHQ-0032"
-                    value={transactionId || ''}
-                    onChange={(e) => setTxnId(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm font-mono font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
-                    required
-                  />
+                  {/* Transaction ID */}
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Txn ID / UTR / Cheque No. <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. UTR-928410 or CHQ-0032"
+                      value={transactionId || ''}
+                      onChange={(e) => setTxnId(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm font-mono font-bold border border-slate-300 rounded-xl bg-white focus:ring-2 focus:ring-emerald-500"
+                      required
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1831,6 +1992,18 @@ export default function VisitLogger({ user, onNavigateToShift }) {
           </div>
         )}
       </div>
+
+      {/* Dynamic BharatPe / NPCI UPI QR Modal */}
+      <DynamicUpiQrModal
+        user={user}
+        isOpen={isUpiQrModalOpen}
+        onClose={() => setIsUpiQrModalOpen(false)}
+        firmName={upiQrParams.firmName}
+        firmUpiId={upiQrParams.firmUpiId}
+        amount={upiQrParams.amount}
+        invoiceNote={upiQrParams.invoiceNote}
+        onPaymentConfirmed={handlePaymentConfirmedFromQr}
+      />
     </div>
   );
 }

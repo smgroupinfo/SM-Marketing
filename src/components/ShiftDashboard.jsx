@@ -7,6 +7,7 @@ import {
 import { api } from '../lib/api';
 import { captureLiveLocation } from '../lib/locationService';
 import { sendMobilePushNotification } from '../lib/notificationEngine';
+import { queueOfflineShift } from '../lib/offlineSyncEngine';
 
 export default function ShiftDashboard({ user }) {
   // Main shift status: 'OFF_DUTY' | 'STARTING' | 'ACTIVE' | 'CLOSING' | 'REVIEW'
@@ -165,12 +166,23 @@ export default function ShiftDashboard({ user }) {
       id: generatedShiftId,
       userId: user?.userId || user?.user_id,
       openingOdometer: odoNum,
-      openingPhoto: openingPhoto || openingPhotoPreview || 'data:image/png;base64,sample',
+      openingPhoto: openingPhoto || openingPhotoPreview || '',
       startTime: new Date().toISOString(),
       startLocation: liveStartLoc,
       status: 'ACTIVE',
       visitsCount: 0
     };
+
+    // Buffer into IndexedDB Offline Engine
+    try {
+      await queueOfflineShift({
+        type: 'start',
+        shiftId: generatedShiftId,
+        data: newShiftPayload
+      });
+    } catch (idbErr) {
+      console.warn('Shift IndexedDB queue buffer:', idbErr);
+    }
 
     try {
       const res = await api.post('/shifts/start', newShiftPayload);
@@ -207,7 +219,12 @@ export default function ShiftDashboard({ user }) {
       localStorage.setItem('activeShiftId', generatedShiftId);
       localStorage.setItem('activeShiftData', JSON.stringify(newShiftPayload));
 
-      setSuccessMsg('Shift active (Local/Offline Mode enabled).');
+      setSuccessMsg('Shift active (Local IndexedDB Offline Mode enabled).');
+      sendMobilePushNotification(
+        '🚀 Shift Started (Offline)',
+        `Opening Odometer: ${odoNum} KM recorded in local database. Will sync automatically upon network reconnection.`,
+        { type: 'info' }
+      );
       setOpeningOdometer('');
       setOpeningPhoto('');
       setOpeningPhotoPreview('');
@@ -240,12 +257,26 @@ export default function ShiftDashboard({ user }) {
       return;
     }
 
-    // Calculate End of Day Metrics using dynamic Global Configuration
+    // Calculate End of Day Metrics from actual user visits and dynamic Global Configuration
     const totalKms = parseFloat((closingNum - currentOpening).toFixed(1));
-    const visitsCount = activeShiftData?.visitsCount || 3; // Realistic visits completed during shift
+    let visitsCount = 0;
+    let earnedVisitsIncentive = 0;
+    try {
+      const allVisits = JSON.parse(localStorage.getItem('user_visits') || '[]');
+      const todayStr = new Date().toISOString().split('T')[0];
+      const uid = user?.userId || user?.user_id || user?.id;
+      const todayUserVisits = allVisits.filter(v => 
+        (v.paymentDate || v.timestamp || '').startsWith(todayStr) && 
+        (v.userId === uid || v.user_id === uid || v.exec_id === uid)
+      );
+      visitsCount = todayUserVisits.length;
+      earnedVisitsIncentive = todayUserVisits.reduce((sum, v) => sum + (parseFloat(v.bagIncentive) || 0), 0);
+    } catch (e) {}
+
     const kmRate = Number(globalConfig?.kmRate ?? globalConfig?.km_rate ?? 5);
     const fooding = Number(globalConfig?.foodingAllowance ?? globalConfig?.fooding_allowance ?? 250);
-    const incentiveAmount = (totalKms * kmRate) + fooding + (visitsCount * 50);
+    const kmPayout = totalKms * kmRate;
+    const incentiveAmount = kmPayout + fooding + earnedVisitsIncentive;
 
     setEndOfDaySummary({
       openingOdometer: currentOpening,
@@ -253,8 +284,9 @@ export default function ShiftDashboard({ user }) {
       totalKms,
       visitsCount,
       kmRate,
-      kmPayout: totalKms * kmRate,
+      kmPayout,
       foodingAllowance: fooding,
+      visitsIncentive: earnedVisitsIncentive,
       dailyIncentive: incentiveAmount,
       endTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
@@ -290,10 +322,21 @@ export default function ShiftDashboard({ user }) {
       closeLocation: liveCloseLoc
     };
 
+    // Buffer into IndexedDB Offline Engine
+    try {
+      await queueOfflineShift({
+        type: 'close',
+        shiftId: storedShiftId,
+        data: closePayload
+      });
+    } catch (idbErr) {
+      console.warn('Shift close IndexedDB queue buffer:', idbErr);
+    }
+
     try {
       await api.post('/shifts/close', closePayload);
     } catch (err) {
-      console.warn('Backend shift close call error. Proceeding with local settlement cleanup.', err);
+      console.warn('Backend shift close call error. Buffered in IndexedDB for auto-sync.', err);
     } finally {
       // Clear persistent active shift keys
       localStorage.removeItem('shiftStatus');
